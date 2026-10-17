@@ -38,10 +38,29 @@
     "step": {
       "init": {
         "title": "Opções do InBody",
+        "menu_options": {
+          "settings": "Alterar intervalo de atualização",
+          "import_history": "Importar histórico agora"
+        }
+      },
+      "settings": {
+        "title": "Intervalo de atualização",
         "data": {
           "scan_interval": "Intervalo de atualização (minutos)"
         }
+      },
+      "import_history": {
+        "title": "Importar histórico",
+        "description": "Busca todas as medições guardadas na sua conta InBody e grava nas estatísticas de longo prazo dos sensores. Pode demorar um pouco e é seguro executar mais de uma vez. Selecione Enviar para começar."
       }
+    },
+    "error": {
+      "import_failed": "A importação falhou. Veja o log do Home Assistant para detalhes."
+    },
+    "abort": {
+      "import_done": "Concluído. Foram encontradas {scans} medições e gravados {points} pontos de estatística por hora. Eles aparecem nos gráficos de estatísticas.",
+      "not_loaded": "A integração não está carregada. Corrija a conexão primeiro (veja as notificações) e tente novamente.",
+      "unsupported_version": "Esta versão do Home Assistant não suporta a importação do histórico."
     }
   },
   "entity": {

@@ -10,6 +10,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import (
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
@@ -144,9 +145,16 @@ class InBodyConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class InBodyOptionsFlow(OptionsFlow):
-    """Options: polling interval."""
+    """Options menu: update interval, and a button to import the history."""
 
     async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_show_menu(
+            step_id="init", menu_options=["settings", "import_history"]
+        )
+
+    async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
@@ -165,4 +173,39 @@ class InBodyOptionsFlow(OptionsFlow):
                 )
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="settings", data_schema=schema)
+
+    async def async_step_import_history(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm, then import every past scan into long-term statistics."""
+        if self.config_entry.state is not ConfigEntryState.LOADED:
+            return self.async_abort(reason="not_loaded")
+
+        if user_input is None:
+            return self.async_show_form(
+                step_id="import_history", data_schema=vol.Schema({})
+            )
+
+        try:
+            from .history import async_import_history
+        except ImportError:
+            return self.async_abort(reason="unsupported_version")
+
+        try:
+            result = await async_import_history(self.hass, self.config_entry)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("InBody history import failed")
+            return self.async_show_form(
+                step_id="import_history",
+                data_schema=vol.Schema({}),
+                errors={"base": "import_failed"},
+            )
+
+        return self.async_abort(
+            reason="import_done",
+            description_placeholders={
+                "scans": str(result["scans_found"]),
+                "points": str(sum(result["statistics_imported"].values())),
+            },
+        )

@@ -29,7 +29,7 @@ Instalação manual (sem HACS): copie `custom_components/ha_inbody` para `<seu /
 | País | Código ISO de 2 letras (`BR`, `US`…). O padrão é `BR`. |
 | Importar medições antigas após a configuração | Marcado por padrão. Busca todo o histórico uma única vez, em segundo plano (veja [Importar o histórico](#importar-o-histórico)). |
 
-Em **Configurar** na integração você ajusta o intervalo de atualização (5 a 1440 min).
+Depois de configurada, clique em **Configurar** na integração: aparece um menu com **Alterar intervalo de atualização** (5 a 1440 min) e **Importar histórico agora**.
 
 ## Entidades
 
@@ -58,7 +58,9 @@ template:
 
 A integração só enxerga a medição mais recente a partir do momento em que é instalada. Para trazer **todas as medições antigas** da sua conta InBody, deixe marcada a opção **Importar medições antigas após a configuração** ao adicionar a integração: a importação roda uma única vez, em segundo plano, e a opção se desmarca sozinha quando termina com sucesso. Se falhar (por exemplo, sem internet), ela tenta de novo na próxima vez que a integração carregar.
 
-Você também pode importar a qualquer momento, manualmente, com a ação `ha_inbody.import_history`:
+Para importar a qualquer momento: em **Configurações → Dispositivos e serviços → HA InBody → Configurar**, escolha **Importar histórico agora** e confirme. Ao terminar, o HA mostra quantas medições foram encontradas e quantos pontos foram gravados.
+
+Outra forma, útil para automações, é a ação `ha_inbody.import_history`:
 
 1. **Ferramentas do desenvolvedor → Ações**.
 2. Escolha **HA InBody: Importar histórico** (`ha_inbody.import_history`).

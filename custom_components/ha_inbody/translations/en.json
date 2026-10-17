@@ -38,10 +38,29 @@
     "step": {
       "init": {
         "title": "InBody options",
+        "menu_options": {
+          "settings": "Change update interval",
+          "import_history": "Import history now"
+        }
+      },
+      "settings": {
+        "title": "Update interval",
         "data": {
           "scan_interval": "Update interval (minutes)"
         }
+      },
+      "import_history": {
+        "title": "Import history",
+        "description": "Fetches every scan stored in your InBody account and adds it to the long-term statistics of the sensors. It can take a little while and is safe to run more than once. Select Submit to start."
       }
+    },
+    "error": {
+      "import_failed": "The import failed. Check the Home Assistant log for details."
+    },
+    "abort": {
+      "import_done": "Done. Found {scans} scans and wrote {points} hourly statistics points. They appear in statistics graphs.",
+      "not_loaded": "The integration is not loaded. Fix its connection first (see the notifications), then try again.",
+      "unsupported_version": "This Home Assistant version does not support the history import."
     }
   },
   "entity": {
