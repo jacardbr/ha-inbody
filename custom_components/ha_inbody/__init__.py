@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import (
     HomeAssistant,
+    callback,
     ServiceCall,
     ServiceResponse,
     SupportsResponse,
@@ -21,6 +22,7 @@ from homeassistant.exceptions import (
     ServiceValidationError,
 )
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
@@ -49,7 +51,36 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 SERVICE_IMPORT_HISTORY = "import_history"
 ATTR_CONFIG_ENTRY_ID = "config_entry_id"
 
+# Sensor keys that were renamed. The entity registry entries are migrated in
+# place, so entity_ids and recorded history are kept.
+_KEY_RENAMES = {
+    "percent_body_fat": "body_fat_percentage",
+    "total_body_water": "body_water_mass",
+    "total_body_water_percentage": "body_water_percentage",
+}
+
 type InBodyConfigEntry = ConfigEntry[InBodyCoordinator]
+
+
+async def _async_migrate_unique_ids(
+    hass: HomeAssistant, entry: ConfigEntry, uid: str
+) -> None:
+    """Rename old sensor unique_ids to the current keys (idempotent)."""
+    registry = er.async_get(hass)
+
+    @callback
+    def _migrate(reg_entry: er.RegistryEntry) -> dict[str, str] | None:
+        for old, new in _KEY_RENAMES.items():
+            if reg_entry.unique_id == f"{uid}_{old}":
+                new_unique_id = f"{uid}_{new}"
+                if registry.async_get_entity_id(
+                    reg_entry.domain, DOMAIN, new_unique_id
+                ):
+                    return None  # already exists; leave the old one alone
+                return {"new_unique_id": new_unique_id}
+        return None
+
+    await er.async_migrate_entries(hass, entry.entry_id, _migrate)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -120,6 +151,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: InBodyConfigEntry) -> bo
         raise ConfigEntryNotReady(f"No InBody API host for {err}") from err
     except (InBodyConnectionError, InBodyError) as err:
         raise ConfigEntryNotReady(str(err)) from err
+
+    await _async_migrate_unique_ids(hass, entry, uid)
 
     coordinator = InBodyCoordinator(hass, entry, api, uid)
     await coordinator.async_config_entry_first_refresh()

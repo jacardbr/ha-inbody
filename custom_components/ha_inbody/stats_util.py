@@ -27,3 +27,10 @@ def hourly_points(
         start = scan.taken_at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
         buckets[start] = value
     return sorted(buckets.items())
+
+
+def percent_of(part: float | None, whole: float | None) -> float | None:
+    """`part` as a percentage of `whole`; None if either is missing or whole <= 0."""
+    if part is None or whole is None or whole <= 0:
+        return None
+    return part / whole * 100

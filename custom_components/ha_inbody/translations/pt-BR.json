@@ -71,7 +71,7 @@
       "bmi": {
         "name": "IMC"
       },
-      "percent_body_fat": {
+      "body_fat_percentage": {
         "name": "Percentual de gordura"
       },
       "skeletal_muscle_mass": {
@@ -80,11 +80,17 @@
       "body_fat_mass": {
         "name": "Massa de gordura"
       },
-      "total_body_water": {
-        "name": "Água corporal total"
+      "body_water_mass": {
+        "name": "Massa de água corporal"
       },
       "last_scan": {
         "name": "Última medição"
+      },
+      "skeletal_muscle_percentage": {
+        "name": "Percentual de massa muscular"
+      },
+      "body_water_percentage": {
+        "name": "Percentual de água corporal"
       }
     }
   },

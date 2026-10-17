@@ -71,7 +71,7 @@
       "bmi": {
         "name": "BMI"
       },
-      "percent_body_fat": {
+      "body_fat_percentage": {
         "name": "Body fat percentage"
       },
       "skeletal_muscle_mass": {
@@ -80,11 +80,17 @@
       "body_fat_mass": {
         "name": "Body fat mass"
       },
-      "total_body_water": {
-        "name": "Total body water"
+      "body_water_mass": {
+        "name": "Body water mass"
       },
       "last_scan": {
         "name": "Last scan"
+      },
+      "skeletal_muscle_percentage": {
+        "name": "Skeletal muscle percentage"
+      },
+      "body_water_percentage": {
+        "name": "Body water percentage"
       }
     }
   },

@@ -39,9 +39,13 @@ Depois de configurada, clique em **Configurar** na integração: aparece um menu
 | IMC | kg/m² |
 | Percentual de gordura | % |
 | Massa muscular esquelética | kg |
+| Percentual de massa muscular | % |
 | Massa de gordura | kg |
-| Água corporal total | kg |
+| Massa de água corporal | kg |
+| Percentual de água corporal | % |
 | Última medição | data/hora |
+
+Os dois sensores em **%** de massa muscular e água corporal são calculados pela integração (massa ÷ peso × 100), não vêm prontos da API. O percentual de gordura vem direto da API.
 
 A entidade **Última medição** também traz, como atributos `bca` e `mfa`, **todos** os campos que a API devolveu. Qualquer métrica sem sensor próprio (gordura visceral, TMB, água intra/extracelular etc.) pode ser lida de lá com um template, por exemplo:
 

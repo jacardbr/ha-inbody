@@ -415,5 +415,18 @@ class HourlyPointsTests(unittest.TestCase):
         )
 
 
+class PercentOfTests(unittest.TestCase):
+    def test_basic(self):
+        self.assertAlmostEqual(stats_util.percent_of(36.2, 78.4), 46.173, places=2)
+        self.assertEqual(stats_util.percent_of(50.0, 100.0), 50.0)
+
+    def test_missing_or_invalid_inputs(self):
+        self.assertIsNone(stats_util.percent_of(None, 78.4))
+        self.assertIsNone(stats_util.percent_of(36.2, None))
+        self.assertIsNone(stats_util.percent_of(36.2, 0))
+        self.assertIsNone(stats_util.percent_of(36.2, -5))
+        self.assertEqual(stats_util.percent_of(0, 78.4), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

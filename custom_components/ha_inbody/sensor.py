@@ -23,6 +23,7 @@ from . import InBodyConfigEntry
 from .api import InBodyScan
 from .const import DOMAIN
 from .coordinator import InBodyCoordinator
+from .stats_util import percent_of
 
 
 def _num(block: dict[str, Any], key: str) -> float | None:
@@ -47,6 +48,7 @@ SENSORS: tuple[InBodySensorDescription, ...] = (
     InBodySensorDescription(
         key="weight",
         translation_key="weight",
+        icon="mdi:weight",
         device_class=SensorDeviceClass.WEIGHT,
         native_unit_of_measurement=UnitOfMass.KILOGRAMS,
         state_class=SensorStateClass.MEASUREMENT,
@@ -56,14 +58,16 @@ SENSORS: tuple[InBodySensorDescription, ...] = (
     InBodySensorDescription(
         key="bmi",
         translation_key="bmi",
+        icon="mdi:weight",
         native_unit_of_measurement="kg/m²",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         value_fn=lambda s: _num(s.mfa, "BMI"),
     ),
     InBodySensorDescription(
-        key="percent_body_fat",
-        translation_key="percent_body_fat",
+        key="body_fat_percentage",
+        translation_key="body_fat_percentage",
+        icon="mdi:water-opacity",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
@@ -72,6 +76,7 @@ SENSORS: tuple[InBodySensorDescription, ...] = (
     InBodySensorDescription(
         key="skeletal_muscle_mass",
         translation_key="skeletal_muscle_mass",
+        icon="mdi:arm-flex",
         device_class=SensorDeviceClass.WEIGHT,
         native_unit_of_measurement=UnitOfMass.KILOGRAMS,
         state_class=SensorStateClass.MEASUREMENT,
@@ -79,8 +84,19 @@ SENSORS: tuple[InBodySensorDescription, ...] = (
         value_fn=lambda s: _num(s.mfa, "SMM"),
     ),
     InBodySensorDescription(
+        key="skeletal_muscle_percentage",
+        translation_key="skeletal_muscle_percentage",
+        icon="mdi:arm-flex",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        # Derived: skeletal muscle mass as a share of body weight.
+        value_fn=lambda s: percent_of(_num(s.mfa, "SMM"), _num(s.bca, "WT")),
+    ),
+    InBodySensorDescription(
         key="body_fat_mass",
         translation_key="body_fat_mass",
+        icon="mdi:water-opacity",
         device_class=SensorDeviceClass.WEIGHT,
         native_unit_of_measurement=UnitOfMass.KILOGRAMS,
         state_class=SensorStateClass.MEASUREMENT,
@@ -88,13 +104,24 @@ SENSORS: tuple[InBodySensorDescription, ...] = (
         value_fn=lambda s: _num(s.bca, "BFM"),
     ),
     InBodySensorDescription(
-        key="total_body_water",
-        translation_key="total_body_water",
+        key="body_water_mass",
+        translation_key="body_water_mass",
+        icon="mdi:water",
         device_class=SensorDeviceClass.WEIGHT,
         native_unit_of_measurement=UnitOfMass.KILOGRAMS,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         value_fn=lambda s: _num(s.bca, "TBW"),
+    ),
+    InBodySensorDescription(
+        key="body_water_percentage",
+        translation_key="body_water_percentage",
+        icon="mdi:water",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        # Derived: total body water as a share of body weight.
+        value_fn=lambda s: percent_of(_num(s.bca, "TBW"), _num(s.bca, "WT")),
     ),
     InBodySensorDescription(
         key="last_scan",
