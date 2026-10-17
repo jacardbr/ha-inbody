@@ -7,7 +7,11 @@
         "data": {
           "login_id": "Login ID (phone number)",
           "password": "Password",
-          "country": "Country (ISO code, e.g. BR, US)"
+          "country": "Country (ISO code, e.g. BR, US)",
+          "import_history": "Import past measurements after setup"
+        },
+        "data_description": {
+          "import_history": "Fetches your full InBody history once, in the background, and adds it to the long-term statistics of the sensors. You can also run it later with the ha_inbody.import_history action."
         }
       },
       "reauth_confirm": {
@@ -42,13 +46,39 @@
   },
   "entity": {
     "sensor": {
-      "weight": { "name": "Weight" },
-      "bmi": { "name": "BMI" },
-      "percent_body_fat": { "name": "Body fat percentage" },
-      "skeletal_muscle_mass": { "name": "Skeletal muscle mass" },
-      "body_fat_mass": { "name": "Body fat mass" },
-      "total_body_water": { "name": "Total body water" },
-      "last_scan": { "name": "Last scan" }
+      "weight": {
+        "name": "Weight"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "percent_body_fat": {
+        "name": "Body fat percentage"
+      },
+      "skeletal_muscle_mass": {
+        "name": "Skeletal muscle mass"
+      },
+      "body_fat_mass": {
+        "name": "Body fat mass"
+      },
+      "total_body_water": {
+        "name": "Total body water"
+      },
+      "last_scan": {
+        "name": "Last scan"
+      }
+    }
+  },
+  "services": {
+    "import_history": {
+      "name": "Import history",
+      "description": "Fetches every scan stored in your InBody account and writes it to the long-term statistics of the InBody sensors, so past measurements appear in statistics graphs. Safe to run more than once.",
+      "fields": {
+        "config_entry_id": {
+          "name": "InBody account",
+          "description": "Which InBody account to import. Leave empty to import all configured accounts."
+        }
+      }
     }
   }
 }

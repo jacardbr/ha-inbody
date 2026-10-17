@@ -1,0 +1,7 @@
+import_history:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_inbody

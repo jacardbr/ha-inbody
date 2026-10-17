@@ -6,6 +6,7 @@ CONF_LOGIN_ID = "login_id"
 CONF_PASSWORD = "password"
 CONF_COUNTRY = "country"
 CONF_SCAN_INTERVAL = "scan_interval"
+CONF_IMPORT_HISTORY = "import_history"  # one-shot flag set by the setup form
 
 DEFAULT_COUNTRY = "BR"
 DEFAULT_SCAN_INTERVAL = 30  # minutes

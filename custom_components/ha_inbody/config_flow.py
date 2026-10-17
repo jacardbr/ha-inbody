@@ -26,6 +26,7 @@ from .api import (
 )
 from .const import (
     CONF_COUNTRY,
+    CONF_IMPORT_HISTORY,
     CONF_LOGIN_ID,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
@@ -86,6 +87,7 @@ class InBodyConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_LOGIN_ID: login_id,
                         CONF_PASSWORD: user_input[CONF_PASSWORD],
                         CONF_COUNTRY: country,
+                        CONF_IMPORT_HISTORY: user_input.get(CONF_IMPORT_HISTORY, False),
                     },
                 )
 
@@ -94,6 +96,7 @@ class InBodyConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_LOGIN_ID): str,
                 vol.Required(CONF_PASSWORD): str,
                 vol.Required(CONF_COUNTRY, default=DEFAULT_COUNTRY): str,
+                vol.Required(CONF_IMPORT_HISTORY, default=True): bool,
             }
         )
         return self.async_show_form(

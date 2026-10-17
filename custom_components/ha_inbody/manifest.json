@@ -3,6 +3,9 @@
   "name": "HA InBody",
   "codeowners": [],
   "config_flow": true,
+  "dependencies": [
+    "recorder"
+  ],
   "documentation": "https://github.com/jacardbr/ha-inbody",
   "integration_type": "service",
   "iot_class": "cloud_polling",

@@ -47,6 +47,9 @@ _UA_DALVIK = "Dalvik/2.1.0 (Linux; U; Android 14; Pixel 6 Pro Build/AP2A.240905.
 
 _TIMEOUT = aiohttp.ClientTimeout(total=30)
 
+_PAGE_SIZE = 100
+_MAX_PAGES = 500  # hard stop: 50,000 scans per query
+
 
 class InBodyError(Exception):
     """Generic InBody API error."""
@@ -256,7 +259,9 @@ class InBodyApi:
             raise InBodyError(f"InBody API error: {data.get('ErrorMsg') or data}")
         return data
 
-    async def _get_scans(self, number: int, home_device: bool) -> list[dict[str, Any]]:
+    async def _get_scans(
+        self, number: int, home_device: bool, index: int = 0
+    ) -> list[dict[str, Any]]:
         await self._resolve_api_base()
         assert self._country_number is not None
         if self._uid is None:
@@ -266,7 +271,7 @@ class InBodyApi:
             uid=self._uid,
             syncDatetime=_FULL_SYNC_DATETIME,
             NumberPerData=str(number),
-            CurrentIndex="0",
+            CurrentIndex=str(index),
             Language="en-US",
             UseInBodyHomeDevice="true" if home_device else "false",
         )
@@ -290,3 +295,35 @@ class InBodyApi:
             return None
         latest = max(records, key=lambda r: str(r.get("DATETIMES") or ""))
         return InBodyScan.from_record(latest, tz)
+
+    async def async_get_all_scans(self, tz: tzinfo | None) -> list[InBodyScan]:
+        """Return every scan on the account, oldest first (de-duplicated).
+
+        Pages through the history for both the regular and the "home device"
+        queries and merges them. Paging stops when a page is short, empty, or
+        brings nothing new (guards against a server that ignores the offset).
+        """
+        found: dict[str, dict[str, Any]] = {}
+        for home_device in (False, True):
+            index = 0
+            for _ in range(_MAX_PAGES):
+                try:
+                    records = await self._get_scans(_PAGE_SIZE, home_device, index)
+                except InBodyAuthError:
+                    raise
+                except InBodyError:
+                    if not home_device:
+                        raise
+                    break  # the home-device query is best effort
+                if not records:
+                    break
+                new = 0
+                for rec in records:
+                    key = str(rec.get("DATETIMES") or "")
+                    if key and key not in found:
+                        found[key] = rec
+                        new += 1
+                if new == 0 or len(records) < _PAGE_SIZE:
+                    break
+                index += len(records)
+        return [InBodyScan.from_record(found[k], tz) for k in sorted(found)]

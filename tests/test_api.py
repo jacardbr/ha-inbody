@@ -49,6 +49,14 @@ api = importlib.util.module_from_spec(_spec)
 sys.modules["inbody_api"] = api
 _spec.loader.exec_module(api)
 
+_spec2 = importlib.util.spec_from_file_location(
+    "inbody_stats_util",
+    Path(__file__).parent.parent / "custom_components" / "ha_inbody" / "stats_util.py",
+)
+stats_util = importlib.util.module_from_spec(_spec2)
+sys.modules["inbody_stats_util"] = stats_util
+_spec2.loader.exec_module(stats_util)
+
 BR_HOST = "https://appapibr.example.test"
 COUNTRY_TABLE = {
     "IsSuccess": True,
@@ -92,6 +100,8 @@ class FakeSession:
         self.calls.append((url, payload, headers or {}))
         for suffix, queue in self.routes.items():
             if url.endswith(suffix):
+                if callable(queue):
+                    return FakeResponse(*queue(payload))
                 item = queue.pop(0) if len(queue) > 1 else queue[0]
                 if isinstance(item, Exception):
                     raise item
@@ -279,6 +289,130 @@ class ParsingTests(unittest.TestCase):
     def test_missing_blocks_default_to_empty(self):
         s = api.InBodyScan.from_record({"DATETIMES": "20261015063015"}, None)
         self.assertEqual((s.bca, s.mfa), ({}, {}))
+
+
+def _rec(i: int) -> dict:
+    """A distinct fake scan; i-th scan, one per day starting 2025-01-01."""
+    from datetime import date, timedelta
+
+    d = date(2025, 1, 1) + timedelta(days=i)
+    return {
+        "DATETIMES": d.strftime("%Y%m%d") + "070000",
+        "BCA": {"WT": str(70 + i * 0.01)},
+        "MFA": {},
+    }
+
+
+class HistoryTests(unittest.TestCase):
+    def _paged_routes(self, normal, home=()):
+        """Server that honours NumberPerData/CurrentIndex per query flag."""
+        seen = []
+
+        def handler(payload):
+            data = normal if payload["UseInBodyHomeDevice"] == "false" else home
+            n, i = int(payload["NumberPerData"]), int(payload["CurrentIndex"])
+            seen.append((payload["UseInBodyHomeDevice"], i))
+            # newest first, like the real API
+            ordered = sorted(data, key=lambda r: r["DATETIMES"], reverse=True)
+            return 200, {"IsSuccess": True, "Data": ordered[i : i + n]}
+
+        routes = BASE_ROUTES()
+        routes["/V2/InBody/GetInBodyData"] = handler
+        return routes, seen
+
+    def test_pages_through_all_scans_oldest_first(self):
+        routes, seen = self._paged_routes([_rec(i) for i in range(250)])
+        a, _ = make_api(routes)
+        scans = run(a.async_get_all_scans(None))
+        self.assertEqual(len(scans), 250)
+        self.assertEqual(scans[0].raw_datetime, _rec(0)["DATETIMES"])
+        self.assertEqual(scans[-1].raw_datetime, _rec(249)["DATETIMES"])
+        self.assertEqual([i for f, i in seen if f == "false"], [0, 100, 200])
+
+    def test_exact_multiple_of_page_size_terminates(self):
+        routes, seen = self._paged_routes([_rec(i) for i in range(200)])
+        a, _ = make_api(routes)
+        self.assertEqual(len(run(a.async_get_all_scans(None))), 200)
+        # third page is empty -> loop ends
+        self.assertEqual([i for f, i in seen if f == "false"], [0, 100, 200])
+
+    def test_server_that_ignores_offset_does_not_loop_forever(self):
+        page = [_rec(i) for i in range(100)]
+        routes = BASE_ROUTES()
+        routes["/V2/InBody/GetInBodyData"] = [(200, {"IsSuccess": True, "Data": page})]
+        a, s = make_api(routes)
+        self.assertEqual(len(run(a.async_get_all_scans(None))), 100)
+        # 2 calls for the regular query (second brings nothing new) + 2 for home
+        self.assertLessEqual(len(s.calls_to("GetInBodyData")), 4)
+
+    def test_merges_regular_and_home_device_scans(self):
+        a_, b_, c_ = _rec(0), _rec(1), _rec(2)
+        routes, _ = self._paged_routes([a_, b_], home=[b_, c_])
+        a, _ = make_api(routes)
+        scans = run(a.async_get_all_scans(None))
+        self.assertEqual([s.raw_datetime for s in scans], [r["DATETIMES"] for r in (a_, b_, c_)])
+
+    def test_home_device_error_is_ignored_but_regular_error_is_not(self):
+        def handler(payload):
+            if payload["UseInBodyHomeDevice"] == "true":
+                return 200, {"IsSuccess": False, "ErrorMsg": "nope"}
+            return 200, {"IsSuccess": True, "Data": [_rec(0)]}
+
+        routes = BASE_ROUTES()
+        routes["/V2/InBody/GetInBodyData"] = handler
+        a, _ = make_api(routes)
+        self.assertEqual(len(run(a.async_get_all_scans(None))), 1)
+
+        routes = BASE_ROUTES()
+        routes["/V2/InBody/GetInBodyData"] = lambda p: (200, {"IsSuccess": False, "ErrorMsg": "boom"})
+        a, _ = make_api(routes)
+        with self.assertRaises(api.InBodyError):
+            run(a.async_get_all_scans(None))
+
+    def test_empty_account(self):
+        routes, _ = self._paged_routes([])
+        a, _ = make_api(routes)
+        self.assertEqual(run(a.async_get_all_scans(None)), [])
+
+
+class HourlyPointsTests(unittest.TestCase):
+    def _scan(self, raw, wt, tz):
+        return api.InBodyScan.from_record(
+            {"DATETIMES": raw, "BCA": {"WT": wt}, "MFA": {}}, tz
+        )
+
+    def test_converts_local_time_to_utc_hour_buckets(self):
+        tz = ZoneInfo("America/Sao_Paulo")  # UTC-3
+        scans = [self._scan("20261015063015", "78.4", tz)]
+        pts = stats_util.hourly_points(scans, lambda s: float(s.bca["WT"]))
+        self.assertEqual(len(pts), 1)
+        self.assertEqual(pts[0][0].isoformat(), "2026-10-15T09:00:00+00:00")
+        self.assertEqual(pts[0][1], 78.4)
+
+    def test_latest_scan_in_same_hour_wins_and_output_is_sorted(self):
+        tz = ZoneInfo("UTC")
+        scans = [
+            self._scan("20261015063000", "80.0", tz),
+            self._scan("20261014070000", "79.0", tz),
+            self._scan("20261015065900", "78.0", tz),
+        ]
+        pts = stats_util.hourly_points(scans, lambda s: float(s.bca["WT"]))
+        self.assertEqual([p[1] for p in pts], [79.0, 78.0])
+        self.assertTrue(pts[0][0] < pts[1][0])
+
+    def test_skips_missing_values_and_undated_scans(self):
+        tz = ZoneInfo("UTC")
+        scans = [
+            self._scan("20261015063000", "80.0", tz),
+            api.InBodyScan.from_record({"DATETIMES": "bad"}, tz),
+        ]
+        pts = stats_util.hourly_points(
+            scans, lambda s: float(s.bca["WT"]) if s.bca.get("WT") else None
+        )
+        self.assertEqual(len(pts), 1)
+        self.assertEqual(
+            stats_util.hourly_points(scans, lambda s: None), []
+        )
 
 
 if __name__ == "__main__":

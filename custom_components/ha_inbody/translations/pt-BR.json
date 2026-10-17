@@ -7,7 +7,11 @@
         "data": {
           "login_id": "ID de login (telefone)",
           "password": "Senha",
-          "country": "País (código ISO, ex.: BR, US)"
+          "country": "País (código ISO, ex.: BR, US)",
+          "import_history": "Importar medições antigas após a configuração"
+        },
+        "data_description": {
+          "import_history": "Busca todo o seu histórico do InBody uma única vez, em segundo plano, e grava nas estatísticas de longo prazo dos sensores. Você também pode executar depois com a ação ha_inbody.import_history."
         }
       },
       "reauth_confirm": {
@@ -42,13 +46,39 @@
   },
   "entity": {
     "sensor": {
-      "weight": { "name": "Peso" },
-      "bmi": { "name": "IMC" },
-      "percent_body_fat": { "name": "Percentual de gordura" },
-      "skeletal_muscle_mass": { "name": "Massa muscular esquelética" },
-      "body_fat_mass": { "name": "Massa de gordura" },
-      "total_body_water": { "name": "Água corporal total" },
-      "last_scan": { "name": "Última medição" }
+      "weight": {
+        "name": "Peso"
+      },
+      "bmi": {
+        "name": "IMC"
+      },
+      "percent_body_fat": {
+        "name": "Percentual de gordura"
+      },
+      "skeletal_muscle_mass": {
+        "name": "Massa muscular esquelética"
+      },
+      "body_fat_mass": {
+        "name": "Massa de gordura"
+      },
+      "total_body_water": {
+        "name": "Água corporal total"
+      },
+      "last_scan": {
+        "name": "Última medição"
+      }
+    }
+  },
+  "services": {
+    "import_history": {
+      "name": "Importar histórico",
+      "description": "Busca todas as medições guardadas na sua conta InBody e grava nas estatísticas de longo prazo dos sensores, para que as medições antigas apareçam nos gráficos de estatísticas. Pode ser executada mais de uma vez com segurança.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Conta InBody",
+          "description": "Qual conta InBody importar. Deixe vazio para importar todas as contas configuradas."
+        }
+      }
     }
   }
 }

@@ -35,6 +35,9 @@ class InBodyCoordinator(DataUpdateCoordinator[InBodyScan | None]):
         )
         self.api = api
         self.uid = uid
+        # Snapshot used to tell real option changes apart from other entry
+        # updates (e.g. clearing the one-shot import flag) when deciding to reload.
+        self.options = dict(entry.options)
 
     async def _async_update_data(self) -> InBodyScan | None:
         try:
