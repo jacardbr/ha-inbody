@@ -43,7 +43,7 @@ import aiohttp  # noqa: E402
 # is not imported.
 _spec = importlib.util.spec_from_file_location(
     "inbody_api",
-    Path(__file__).parent.parent / "custom_components" / "inbody" / "api.py",
+    Path(__file__).parent.parent / "custom_components" / "ha_inbody" / "api.py",
 )
 api = importlib.util.module_from_spec(_spec)
 sys.modules["inbody_api"] = api

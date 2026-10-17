@@ -1,6 +1,6 @@
 {
-  "domain": "inbody",
-  "name": "InBody",
+  "domain": "ha_inbody",
+  "name": "HA InBody",
   "codeowners": [],
   "config_flow": true,
   "documentation": "https://github.com/jacardbr/ha-inbody",

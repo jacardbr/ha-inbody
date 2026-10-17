@@ -1,6 +1,6 @@
 """Constants for the InBody integration."""
 
-DOMAIN = "inbody"
+DOMAIN = "ha_inbody"
 
 CONF_LOGIN_ID = "login_id"
 CONF_PASSWORD = "password"

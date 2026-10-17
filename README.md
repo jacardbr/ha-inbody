@@ -13,12 +13,12 @@ Consequência: o dado só aparece no HA **depois** que a medição chegou ao app
 ## Instalação (HACS)
 
 1. Publique esta pasta como um repositório no GitHub (os arquivos `hacs.json` e `custom_components/` precisam ficar na raiz).
-2. No HA: **HACS → ⋮ → Repositórios personalizados** → cole a URL do repositório, categoria **Integração** → Adicionar.
+2. No HA: **HACS → ⋮ → Repositórios personalizados** → cole `https://github.com/jacardbr/ha-inbody`, categoria **Integração** → Adicionar.
 3. Procure por **InBody** no HACS e baixe.
-4. **Reinicie o Home Assistant.** Em Docker: `docker restart <nome-do-container>`. Não é preciso mexer em volumes: o HACS grava em `/config/custom_components/inbody`, que já está no volume do seu `/config`.
+4. **Reinicie o Home Assistant.** Em Docker: `docker restart <nome-do-container>`. Não é preciso mexer em volumes: o HACS grava em `/config/custom_components/ha_inbody`, que já está no volume do seu `/config`.
 5. **Configurações → Dispositivos e serviços → Adicionar integração → InBody**.
 
-Instalação manual (sem HACS): copie `custom_components/inbody` para `<seu /config>/custom_components/inbody` e reinicie.
+Instalação manual (sem HACS): copie `custom_components/ha_inbody` para `<seu /config>/custom_components/ha_inbody` e reinicie.
 
 ## Configuração
 
@@ -59,7 +59,7 @@ template:
 - **"O InBody não publica um servidor de API para esse código de país"**: o país não está na tabela de hosts do InBody; tente o país onde o app foi cadastrado.
 - **Sensores "desconhecido"**: a conta ainda não tem nenhuma medição na nuvem. Meça e confirme que ela aparece no app.
 - **Pediu para autenticar de novo**: a senha mudou ou o InBody invalidou o login; o HA mostra o aviso de reautenticação.
-- Logs: ative `logger: logs: custom_components.inbody: debug` no `configuration.yaml`.
+- Logs: ative `logger: logs: custom_components.ha_inbody: debug` no `configuration.yaml`.
 
 ## Privacidade
 
