@@ -1,0 +1,54 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Conta InBody",
+        "description": "Use o mesmo login do app InBody. O ID de login é o telefone usado no cadastro (somente dígitos, sem código do país nem +). Esta integração usa a API móvel não oficial do InBody.",
+        "data": {
+          "login_id": "ID de login (telefone)",
+          "password": "Senha",
+          "country": "País (código ISO, ex.: BR, US)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Autenticar novamente no InBody",
+        "description": "O login no InBody falhou. Digite a senha novamente.",
+        "data": {
+          "password": "Senha"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Falha no login. Confira o telefone e a senha.",
+      "cannot_connect": "Não foi possível conectar ao InBody.",
+      "unsupported_country": "O InBody não publica um servidor de API para esse código de país.",
+      "unknown": "Erro inesperado. Veja o log do Home Assistant."
+    },
+    "abort": {
+      "already_configured": "Esta conta InBody já está configurada.",
+      "reauth_successful": "Reautenticação concluída.",
+      "unique_id_mismatch": "Esse login pertence a outra conta InBody."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opções do InBody",
+        "data": {
+          "scan_interval": "Intervalo de atualização (minutos)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "weight": { "name": "Peso" },
+      "bmi": { "name": "IMC" },
+      "percent_body_fat": { "name": "Percentual de gordura" },
+      "skeletal_muscle_mass": { "name": "Massa muscular esquelética" },
+      "body_fat_mass": { "name": "Massa de gordura" },
+      "total_body_water": { "name": "Água corporal total" },
+      "last_scan": { "name": "Última medição" }
+    }
+  }
+}
