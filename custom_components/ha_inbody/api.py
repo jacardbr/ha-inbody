@@ -75,6 +75,7 @@ class InBodyScan:
     taken_at: datetime | None
     bca: dict[str, Any] = field(default_factory=dict)  # body composition analysis
     mfa: dict[str, Any] = field(default_factory=dict)  # BMI / %fat / muscle
+    other: dict[str, Any] = field(default_factory=dict)  # any other block of the record
 
     @classmethod
     def from_record(cls, record: dict[str, Any], tz: tzinfo | None) -> InBodyScan:
@@ -93,6 +94,7 @@ class InBodyScan:
             taken_at=taken_at,
             bca=record.get("BCA") or {},
             mfa=record.get("MFA") or {},
+            other={k: v for k, v in record.items() if k not in ("BCA", "MFA")},
         )
 
 

@@ -27,5 +27,6 @@ async def async_get_config_entry_diagnostics(
             "taken_at": scan.taken_at.isoformat() if scan.taken_at else None,
             "bca": scan.bca,
             "mfa": scan.mfa,
+            "other_blocks": scan.other,
         },
     }

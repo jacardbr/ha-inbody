@@ -115,6 +115,9 @@ const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) 
   eq(tab(c, "composition").getAttribute("aria-selected"), "true", "ArrowRight reaches the composition tab");
   tab(c, "composition").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
   await tick();
+  eq(tab(c, "quadrant").getAttribute("aria-selected"), "true", "ArrowRight reaches the quadrant tab");
+  tab(c, "quadrant").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  await tick();
   eq(tab(c, "mass").getAttribute("aria-selected"), "true", "ArrowRight wraps around");
 
   // 6. options: overrides, default_tab, graph options, title, no graph
@@ -162,12 +165,10 @@ const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) 
   ok(!all.includes("sensor.hidden_water"), "hidden entity skipped");
   ok(all.includes("sensor.b_weight") && all.includes("sensor.inbody_weight"), "both accounts without device_id");
 
-  // 9. Portuguese
+  // 9. English only, whatever the Home Assistant language is
   c = make({}, { language: "pt-BR" });
   await tick();
-  eq([tab(c, "mass").textContent, tab(c, "percentage").textContent], ["Peso", "Percentual"], "pt labels");
-  c = make({}, { language: "en", locale: { language: "pt" } });
-  eq(tab(c, "mass").textContent, "Peso", "hass.locale.language wins");
+  eq([tab(c, "mass").textContent, tab(c, "percentage").textContent, tab(c, "composition").textContent], ["Weight", "Percentage", "Composition"], "English labels");
 
   // 10. config validation
   let threw = false;
@@ -177,13 +178,13 @@ const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) 
   try { document.createElement("ha-inbody-card").setConfig(null); } catch (e) { threw = true; }
   ok(threw, "null config rejected");
 
-  // 11. language change rebuilds labels, keeps working
+  // 11. a new hass object with a different language does not disturb the card
   c = make({});
   await tick();
   c.hass = { entities: baseEntities(), language: "pt" };
-  eq(tab(c, "mass").textContent, "Peso", "labels rebuilt on language change");
+  eq(tab(c, "mass").textContent, "Weight", "labels stay English");
   await tick();
-  ok(panel(c, "mass").querySelector(".stub-vertical-stack"), "inner card recreated after rebuild");
+  ok(panel(c, "mass").querySelector(".stub-vertical-stack"), "inner card still present");
 
   // 12. tabs option: single tab hides the tab bar
   c = make({ tabs: ["percentage"] });
@@ -196,7 +197,7 @@ const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) 
   ok(panel(c, "mass") && !panel(c, "mass").hidden, "default_tab outside tabs falls back to the first visible tab");
   c = make({ tabs: [] });
   await tick();
-  ok(tab(c, "mass") && tab(c, "percentage") && tab(c, "composition"), "empty tabs list shows all three");
+  ok(tab(c, "mass") && tab(c, "percentage") && tab(c, "composition") && tab(c, "quadrant"), "empty tabs list shows all four");
   threw = false;
   try { document.createElement("ha-inbody-card").setConfig({ tabs: ["bogus"] }); } catch (e) { threw = true; }
   ok(threw, "invalid tab name rejected");
@@ -231,10 +232,55 @@ const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) 
   ok(panel(c, "composition").querySelector(".empty") && !panel(c, "composition").querySelector("svg"), "missing/unavailable sensor -> message");
   c = make({ default_tab: "composition" }, { language: "pt-BR" });
   await tick();
-  ok([...panel(c, "composition").querySelectorAll("text.name")].map((n) => n.textContent).join("|") === "Água corporal|Músculo esquelético|Gordura corporal", "pt labels on the map");
+  ok([...panel(c, "composition").querySelectorAll("text.name")].map((n) => n.textContent).join("|") === "Body water|Skeletal muscle|Body fat", "English labels on the map");
   threw = false;
   try { document.createElement("ha-inbody-card").setConfig({ body_type: "x" }); } catch (e) { threw = true; }
   ok(threw, "invalid body_type rejected");
+
+  // 12d. quadrant: classification, rendering, dot position
+  const cls = (pbf, bmi) => classifyQuadrant(pbf, bmi);
+  const table = [
+    [5, 30, "Athletic"], [14.9, 26, "Athletic"], [15, 25, "Overweight"], [19.9, 25, "Overweight"], [20, 25, "Obesity"],
+    [8, 22, "Muscular"], [14.9, 24.9, "Muscular"], [15, 24.9, "Average"], [19.9, 18.5, "Average"], [20, 24, "Mild Obesity"],
+    [9, 20, "Slim Muscular"], [12, 20, "Slim"], [20, 21.7, "Sarcopenic Obesity"], [24, 16, "Sarcopenic Obesity"],
+    [9, 18, "Thin"], [12, 18, "Slightly Thin"], [19.9, 18.4, "Slightly Thin"],
+  ];
+  for (const [pbf, bmi, want] of table) eq(cls(pbf, bmi), want, `classify pbf=${pbf} bmi=${bmi}`);
+  eq(cls(20, 21.75), "Mild Obesity", "BMI 21.75 belongs to the upper row");
+
+  const qStates = (bmi, pbf) => ({ ...baseStates(), "sensor.inbody_bmi": { state: String(bmi), attributes: {} }, "sensor.inbody_body_fat_percentage": { state: String(pbf), attributes: {} } });
+  c = make({ default_tab: "quadrant" }, { states: qStates(26.3, 19.6) });
+  await tick();
+  const qs = panel(c, "quadrant").querySelector("svg");
+  ok(qs, "quadrant rendered");
+  eq(qs.dataset.region, "Overweight", "InBody example point -> Overweight");
+  eq([...qs.querySelectorAll(".cell")].length, 11, "11 regions drawn");
+  eq([...qs.querySelectorAll(".cell.on")].length, 1, "one highlighted region");
+  eq(qs.querySelector(".rname.on").textContent, "Overweight", "highlighted region is named");
+  const dot = qs.querySelector(".dot");
+  const hi = qs.querySelector(".cell.on");
+  const dx = parseFloat(dot.getAttribute("cx")), dy = parseFloat(dot.getAttribute("cy"));
+  const hx = parseFloat(hi.getAttribute("x")), hy = parseFloat(hi.getAttribute("y"));
+  ok(dx >= hx && dx <= hx + parseFloat(hi.getAttribute("width")) && dy >= hy && dy <= hy + parseFloat(hi.getAttribute("height")), "dot sits inside the highlighted region");
+  ok(Math.abs(dx - (46 + (19.6 - 5) / 20 * 300)) < 0.2, "dot x follows body fat");
+  ok(Math.abs(dy - (6 + (28.25 - 26.3) / 13 * 300)) < 0.2, "dot y follows BMI");
+  ok(panel(c, "quadrant").textContent.includes("26.3") && panel(c, "quadrant").textContent.includes("19.6 %"), "summary shows the values");
+  const tickTexts = [...qs.querySelectorAll(".tick")].map((n) => n.textContent);
+  eq(tickTexts, ["10.0", "20.0", "25.0", "18.5"], "axis ticks");
+
+  c = make({ default_tab: "quadrant" }, { states: qStates(40, 2) });
+  await tick();
+  const far = panel(c, "quadrant").querySelector(".dot");
+  ok(parseFloat(far.getAttribute("cx")) >= 46 && parseFloat(far.getAttribute("cy")) >= 6, "out-of-range values are clamped to the plot");
+  eq(panel(c, "quadrant").querySelector("svg").dataset.region, "Athletic", "out-of-range values still classify");
+
+  c = make({ default_tab: "quadrant" }, { states: { ...baseStates(), "sensor.inbody_bmi": { state: "unavailable", attributes: {} } } });
+  await tick();
+  ok(panel(c, "quadrant").querySelector(".empty") && !panel(c, "quadrant").querySelector("svg"), "quadrant needs BMI and body fat");
+  c = make({ default_tab: "quadrant" }, { states: qStates(26.3, 19.6) });
+  await tick();
+  c.hass = { entities: baseEntities(), states: qStates(22, 12), language: "en" };
+  eq(panel(c, "quadrant").querySelector("svg").dataset.region, "Muscular", "quadrant updates when values change");
 
   // 13. visual editor
   const Card = customElements.get("ha-inbody-card");
@@ -244,12 +290,12 @@ const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) 
   let emitted = null;
   ed.addEventListener("config-changed", (e) => { emitted = e.detail.config; });
   ed.setConfig({ type: "custom:ha-inbody-card" });
-  ed.hass = { language: "pt-BR", entities: baseEntities(), states: { "sensor.inbody_weight": { attributes: { friendly_name: "Peso Friendly" } } } };
+  ed.hass = { language: "en", entities: baseEntities(), states: { "sensor.inbody_weight": { attributes: { friendly_name: "Weight Friendly" } } } };
   const form = ed.querySelector("ha-form");
   ok(form, "editor renders ha-form");
   const names = form.schema.map((f) => f.name);
   eq(names, ["title", "tabs", "default_tab", "body_type", "mass_entities", "percentage_entities", "show_graph", "period", "days_to_show"], "schema fields");
-  eq(form.data.tabs, ["mass", "percentage", "composition"], "defaults: all tabs on");
+  eq(form.data.tabs, ["mass", "percentage", "composition", "quadrant"], "defaults: all tabs on");
   eq(form.data.body_type, "male", "default body type is male");
   eq([form.data.period, form.data.days_to_show, form.data.show_graph], ["month", 365, true], "defaults: graph");
   const sel = (n) => form.schema.find((f) => f.name === n).selector.select;
@@ -260,15 +306,15 @@ const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) 
   eq([sel("mass_entities").multiple, sel("mass_entities").mode], [true, "list"], "checklist selector");
   eq(form.data.mass_entities, sel("mass_entities").options.map((o) => o.value), "mass: all checked by default");
   eq(form.data.percentage_entities.length, 3, "percentage: all checked by default");
-  eq(sel("mass_entities").options[0].label, "Peso Friendly", "label uses friendly_name");
-  eq(form.computeLabel({ name: "period" }), "Período do gráfico", "pt label");
-  eq(form.schema.find((f) => f.name === "tabs").selector.select.options.map((o) => o.label), ["Peso", "Percentual", "Composição"], "pt tab option labels");
+  eq(sel("mass_entities").options[0].label, "Weight Friendly", "label uses friendly_name");
+  eq(form.computeLabel({ name: "period" }), "Graph period", "editor label");
+  eq(form.schema.find((f) => f.name === "tabs").selector.select.options.map((o) => o.label), ["Weight", "Percentage", "Composition", "Quadrant"], "tab option labels");
   eq(form.schema.find((f) => f.name === "period").selector.select.options.map((o) => o.value), ["5minute", "hour", "day", "week", "month"], "period options");
   const fire = (value) => form.dispatchEvent(new CustomEvent("value-changed", { detail: { value }, bubbles: true }));
   fire({ ...form.data, tabs: ["percentage"], period: "week", days_to_show: 30, mass_entities: ["sensor.inbody_weight", "sensor.inbody_body_fat_mass"], title: "T" });
   eq([emitted.tabs, emitted.period, emitted.days_to_show, emitted.mass_entities, emitted.title], [["percentage"], "week", 30, ["sensor.inbody_weight", "sensor.inbody_body_fat_mass"], "T"], "changes emitted");
   eq(emitted.type, "custom:ha-inbody-card", "type kept");
-  fire({ ...form.data, tabs: ["mass", "percentage", "composition"], period: "month", days_to_show: 365, mass_entities: sel("mass_entities").options.map((o) => o.value), title: "", show_graph: false });
+  fire({ ...form.data, tabs: ["mass", "percentage", "composition", "quadrant"], period: "month", days_to_show: 365, mass_entities: sel("mass_entities").options.map((o) => o.value), title: "", show_graph: false });
   ok(!("tabs" in emitted) && !("period" in emitted) && !("days_to_show" in emitted) && !("mass_entities" in emitted) && !("title" in emitted), "defaults are not stored");
   eq(emitted.show_graph, false, "show_graph:false stored");
   fire({ ...form.data, mass_entities: [] });

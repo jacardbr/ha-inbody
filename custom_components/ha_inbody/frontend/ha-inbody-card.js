@@ -31,8 +31,8 @@ const PERCENTAGE_KEYS = [
   "skeletal_muscle_percentage",
   "body_water_percentage",
 ];
-const TABS = ["mass", "percentage", "composition"];
-// tabs that list sensors (the checklists in the editor); composition is a fixed map
+const TABS = ["mass", "percentage", "composition", "quadrant"];
+// tabs that list sensors (the checklists in the editor); the others are fixed charts
 const SENSOR_TABS = ["mass", "percentage"];
 const COMPOSITION_KEYS = [
   "body_fat_percentage",
@@ -70,41 +70,60 @@ const DEFAULT_PERIOD = "month";
 const DEFAULT_DAYS = 365;
 
 const STRINGS = {
-  en: {
-    mass: "Weight",
-    percentage: "Percentage",
-    composition: "Composition",
-    muscle: "Skeletal muscle",
-    fat: "Body fat",
-    map_note: "Band heights are proportional to the three values; body water overlaps muscle and fat.",
-    body_type: "Body type",
-    male: "Male",
-    female: "Female",
-    water: "Body water",
-    weight: "Weight",
-    map_label: "Body composition map",
-    map_empty: "The body composition map needs the body water, skeletal muscle and body fat percentage sensors.",
-    empty:
-      "No InBody sensors found. Check that the HA InBody integration is set up, or list the entities in the card options (mass_entities / percentage_entities).",
-  },
-  pt: {
-    mass: "Peso",
-    percentage: "Percentual",
-    composition: "Composição",
-    muscle: "Músculo esquelético",
-    fat: "Gordura corporal",
-    map_note: "A altura das faixas é proporcional aos três valores; a água corporal se sobrepõe ao músculo e à gordura.",
-    body_type: "Tipo de corpo",
-    male: "Homem",
-    female: "Mulher",
-    water: "Água corporal",
-    weight: "Peso",
-    map_label: "Mapa da composição corporal",
-    map_empty: "O mapa da composição corporal precisa dos sensores de percentual de água, de massa muscular e de gordura.",
-    empty:
-      "Nenhum sensor do InBody encontrado. Confira se a integração HA InBody está configurada, ou liste as entidades nas opções do card (mass_entities / percentage_entities).",
-  },
+  mass: "Weight",
+  percentage: "Percentage",
+  composition: "Composition",
+  quadrant: "Quadrant",
+  quad_empty: "The quadrant needs the BMI and body fat percentage sensors.",
+  quad_label: "Body type quadrant: BMI against percent body fat",
+  quad_bmi: "BMI",
+  quad_pbf: "Percent Body Fat",
+  quad_body_fat: "Body fat",
+  muscle: "Skeletal muscle",
+  fat: "Body fat",
+  map_note: "Band heights are proportional to the three values; body water overlaps muscle and fat.",
+  body_type: "Body type",
+  male: "Male",
+  female: "Female",
+  water: "Body water",
+  weight: "Weight",
+  map_label: "Body composition map",
+  map_empty: "The body composition map needs the body water, skeletal muscle and body fat percentage sensors.",
+  empty:
+    "No InBody sensors found. Check that the HA InBody integration is set up, or list the entities in the card options (mass_entities / percentage_entities).",
 };
+
+// ---- quadrant ("body type"): BMI against percent body fat ---------------------
+// A 4x4 grid of equal cells. Columns: body fat < 10, 10-15, 15-20, >= 20 %.
+// Rows (top to bottom): BMI >= 25, 21.75-25, 18.5-21.75, < 18.5.
+const Q_PBF_MIN = 5;
+const Q_PBF_MAX = 25;
+const Q_BMI_MIN = 15.25;
+const Q_BMI_MAX = 28.25;
+const Q_PBF_CUTS = [10, 15, 20];
+const Q_BMI_CUTS = [25, 21.75, 18.5];
+// [name, first column, first row, columns, rows]
+const Q_REGIONS = [
+  ["Athletic", 0, 0, 2, 1],
+  ["Overweight", 2, 0, 1, 1],
+  ["Obesity", 3, 0, 1, 1],
+  ["Muscular", 0, 1, 2, 1],
+  ["Average", 2, 1, 1, 2],
+  ["Mild Obesity", 3, 1, 1, 1],
+  ["Slim Muscular", 0, 2, 1, 1],
+  ["Slim", 1, 2, 1, 1],
+  ["Sarcopenic Obesity", 3, 2, 1, 2],
+  ["Thin", 0, 3, 1, 1],
+  ["Slightly Thin", 1, 3, 2, 1],
+];
+
+// Region of the quadrant for a body fat percentage and a BMI.
+function classifyQuadrant(pbf, bmi) {
+  const col = Q_PBF_CUTS.filter((c) => pbf >= c).length;
+  const row = Q_BMI_CUTS.filter((c) => bmi < c).length;
+  const hit = Q_REGIONS.find(([, c, r, w, h]) => col >= c && col < c + w && row >= r && row < r + h);
+  return hit ? hit[0] : null;
+}
 
 const CSS = `
   :host { display: block; }
@@ -153,6 +172,17 @@ const CSS = `
     display: flex; justify-content: center; gap: 24px; flex-wrap: wrap;
     margin-top: 8px; color: var(--secondary-text-color); font-size: 13px;
   }
+  .quad { --ib-fat: #fb8c00; padding: 8px 16px 16px; text-align: center; }
+  .quad svg { display: block; width: 100%; max-width: 420px; margin: 0 auto; height: auto; }
+  .quad .cell { fill: var(--secondary-background-color, #f0f1f5); stroke: var(--card-background-color, #fff); stroke-width: 2; }
+  .quad .cell.on { fill: var(--ib-fat); fill-opacity: 0.28; }
+  .quad .rname { font-size: 10.5px; font-weight: 600; fill: var(--secondary-text-color); }
+  .quad .rname.on { fill: var(--primary-text-color); }
+  .quad .tick { font-size: 11px; fill: var(--secondary-text-color); }
+  .quad .axis { font-size: 11px; font-weight: 600; fill: var(--secondary-text-color); }
+  .quad .dot { fill: var(--ib-fat); stroke: var(--card-background-color, #fff); stroke-width: 3; }
+  .quad .summary { margin-top: 8px; color: var(--secondary-text-color); font-size: 13px; }
+  .quad .summary b { color: var(--primary-text-color); font-weight: 600; }
   .comp .extra b { color: var(--primary-text-color); font-weight: 600; }
   .comp .note { margin: 8px 0 0; text-align: center; font-size: 11px; color: var(--secondary-text-color); }
 `;
@@ -179,6 +209,7 @@ function discoverSensors(hass, deviceId) {
     mass: pick(MASS_KEYS),
     percentage: pick(PERCENTAGE_KEYS),
     composition: COMPOSITION_KEYS.flatMap((k) => (byKey[k] || []).slice(0, 1)),
+    quadrant: ["bmi", "body_fat_percentage"].flatMap((k) => (byKey[k] || []).slice(0, 1)),
   };
 }
 
@@ -199,7 +230,7 @@ class HaInbodyCard extends HTMLElement {
     this._config = null;
     this._hass = null;
     this._sig = null;
-    this._lists = { mass: [], percentage: [], composition: [] };
+    this._lists = { mass: [], percentage: [], composition: [], quadrant: [] };
     this._active = "mass";
     this._visible = TABS;
     this._inner = {};
@@ -259,14 +290,8 @@ class HaInbodyCard extends HTMLElement {
 
   // ---- internals ---------------------------------------------------------
 
-  _lang() {
-    const h = this._hass || {};
-    const lang = (h.locale && h.locale.language) || h.language || "en";
-    return String(lang).toLowerCase().startsWith("pt") ? "pt" : "en";
-  }
-
   _t(key) {
-    return STRINGS[this._lang()][key];
+    return STRINGS[key];
   }
 
   _discover() {
@@ -279,6 +304,7 @@ class HaInbodyCard extends HTMLElement {
       mass: this._config.mass_entities || found.mass,
       percentage: this._config.percentage_entities || found.percentage,
       composition: found.composition,
+      quadrant: found.quadrant,
     };
   }
 
@@ -286,7 +312,7 @@ class HaInbodyCard extends HTMLElement {
   _sync() {
     if (!this._config || !this._hass) return;
     const lists = this._computeLists();
-    const sig = JSON.stringify([lists, this._lang(), this._visible]);
+    const sig = JSON.stringify([lists, this._visible]);
     if (sig !== this._sig) {
       this._sig = sig;
       this._lists = lists;
@@ -294,6 +320,7 @@ class HaInbodyCard extends HTMLElement {
     }
     for (const card of Object.values(this._inner)) card.hass = this._hass;
     if (this._panels.composition) this._renderComposition();
+    if (this._panels.quadrant) this._renderQuadrant();
   }
 
   _build() {
@@ -302,6 +329,7 @@ class HaInbodyCard extends HTMLElement {
     this._panels = {};
     this._buttons = {};
     this._compSig = null;
+    this._quadSig = null;
 
     const root = this.shadowRoot;
     root.textContent = "";
@@ -323,7 +351,7 @@ class HaInbodyCard extends HTMLElement {
 
     for (const name of this._visible) {
       const panel = el("div", { class: "panel", role: "tabpanel", "data-tab": name });
-      if (!this._lists[name].length && name !== "composition") panel.appendChild(el("div", { class: "empty" }, this._t("empty")));
+      if (!this._lists[name].length && name !== "composition" && name !== "quadrant") panel.appendChild(el("div", { class: "empty" }, this._t("empty")));
       this._panels[name] = panel;
       card.appendChild(panel);
     }
@@ -367,7 +395,7 @@ class HaInbodyCard extends HTMLElement {
     const v = {};
     for (const k of COMPOSITION_KEYS) v[k] = num(k);
     const type = this._config.body_type === "female" ? "female" : "male";
-    const sig = JSON.stringify([v, this._lang(), type]);
+    const sig = JSON.stringify([v, type]);
     if (sig === this._compSig) return;
     this._compSig = sig;
 
@@ -439,11 +467,98 @@ class HaInbodyCard extends HTMLElement {
     panel.appendChild(wrap);
   }
 
+  // Quadrant: where the latest BMI and body fat percentage fall in the grid.
+  _renderQuadrant() {
+    const panel = this._panels.quadrant;
+    if (!panel || !this._hass) return;
+    const by = scanSensors(this._hass, this._config.device_id);
+    const states = this._hass.states || {};
+    const num = (key) => {
+      const id = (by[key] || [])[0];
+      const n = id && states[id] ? parseFloat(states[id].state) : NaN;
+      return Number.isFinite(n) ? n : null;
+    };
+    const bmi = num("bmi");
+    const pbf = num("body_fat_percentage");
+    const sig = JSON.stringify([bmi, pbf]);
+    if (sig === this._quadSig) return;
+    this._quadSig = sig;
+
+    panel.textContent = "";
+    if (bmi === null || pbf === null) {
+      panel.appendChild(el("div", { class: "empty" }, this._t("quad_empty")));
+      return;
+    }
+    const X0 = 46;
+    const Y0 = 6;
+    const CELL = 75;
+    const SIZE = CELL * 4;
+    const current = classifyQuadrant(pbf, bmi);
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const px = (p) => X0 + ((clamp(p, Q_PBF_MIN, Q_PBF_MAX) - Q_PBF_MIN) / (Q_PBF_MAX - Q_PBF_MIN)) * SIZE;
+    const py = (b) => Y0 + ((Q_BMI_MAX - clamp(b, Q_BMI_MIN, Q_BMI_MAX)) / (Q_BMI_MAX - Q_BMI_MIN)) * SIZE;
+
+    const cells = Q_REGIONS.map(([name, c, r, w, h]) => {
+      const x = X0 + c * CELL;
+      const y = Y0 + r * CELL;
+      const on = name === current;
+      // wrap long names on word boundaries to fit the cell
+      const maxChars = Math.max(6, Math.floor((w * CELL - 12) / 6.2));
+      const lines = [];
+      for (const word of name.split(" ")) {
+        const last = lines[lines.length - 1];
+        if (last !== undefined && `${last} ${word}`.length <= maxChars) lines[lines.length - 1] = `${last} ${word}`;
+        else lines.push(word);
+      }
+      const text = lines
+        .map((ln, i) => `<tspan x="${x + 7}" dy="${i ? 13 : 0}">${ln}</tspan>`)
+        .join("");
+      return (
+        `<rect class="cell${on ? " on" : ""}" x="${x}" y="${y}" width="${w * CELL}" height="${h * CELL}"/>` +
+        `<text class="rname${on ? " on" : ""}" x="${x + 7}" y="${y + 19}">${text}</text>`
+      );
+    }).join("");
+
+    const xTicks = [10, 20]
+      .map((p) => `<text class="tick" x="${px(p)}" y="${Y0 + SIZE + 17}" text-anchor="middle">${p.toFixed(1)}</text>`)
+      .join("");
+    const yTicks = [25, 18.5]
+      .map((b) => `<text class="tick" transform="translate(${X0 - 8} ${py(b)}) rotate(-90)" text-anchor="middle">${b.toFixed(1)}</text>`)
+      .join("");
+    const svg =
+      `<svg viewBox="0 0 360 352" role="img" aria-label="${this._t("quad_label")}" data-region="${current || ""}">` +
+      `<defs><clipPath id="qclip"><rect x="${X0}" y="${Y0}" width="${SIZE}" height="${SIZE}" rx="16"/></clipPath></defs>` +
+      `<g clip-path="url(#qclip)">${cells}</g>` +
+      xTicks +
+      yTicks +
+      `<text class="axis" transform="translate(12 ${Y0 + 22}) rotate(-90)" text-anchor="end">${this._t("quad_bmi")}</text>` +
+      `<text class="axis" x="${X0 + SIZE}" y="${Y0 + SIZE + 38}" text-anchor="end">${this._t("quad_pbf")}</text>` +
+      `<circle class="dot" cx="${px(pbf).toFixed(1)}" cy="${py(bmi).toFixed(1)}" r="7"/>` +
+      `</svg>`;
+
+    const wrap = el("div", { class: "quad" });
+    wrap.innerHTML = svg;
+    const summary = el("div", { class: "summary" });
+    summary.append(
+      el("b", {}, current || "–"),
+      ` · ${this._t("quad_bmi")} `,
+      el("b", {}, bmi.toFixed(1)),
+      ` · ${this._t("quad_body_fat")} `,
+      el("b", {}, `${pbf.toFixed(1)} %`)
+    );
+    wrap.appendChild(summary);
+    panel.appendChild(wrap);
+  }
+
   // Inner cards are created lazily, when their tab is first shown, so charts
   // are never measured while hidden.
   async _ensure(name) {
     if (name === "composition") {
       this._renderComposition();
+      return;
+    }
+    if (name === "quadrant") {
+      this._renderQuadrant();
       return;
     }
     if (this._inner[name] || !this._lists[name].length) return;
@@ -476,40 +591,21 @@ if (!customElements.get(TAG)) customElements.define(TAG, HaInbodyCard);
 const PERIODS = ["5minute", "hour", "day", "week", "month"];
 
 const EDITOR_STRINGS = {
-  en: {
-    title: "Title",
-    tabs: "Tabs to show",
-    body_type: "Body type",
-    default_tab: "Starting tab",
-    mass_entities: "Sensors in the Weight tab",
-    percentage_entities: "Sensors in the Percentage tab",
-    sensors_hint: "All sensors are checked by default. Uncheck the ones you do not want in each tab.",
-    show_graph: "Show the graph",
-    period: "Graph period",
-    days_to_show: "Days shown in the graph",
-    "period.5minute": "5 minutes",
-    "period.hour": "Hour",
-    "period.day": "Day",
-    "period.week": "Week",
-    "period.month": "Month",
-  },
-  pt: {
-    title: "Título",
-    tabs: "Abas exibidas",
-    body_type: "Tipo de corpo",
-    default_tab: "Aba inicial",
-    mass_entities: "Sensores da aba Peso",
-    percentage_entities: "Sensores da aba Percentual",
-    sensors_hint: "Todos os sensores vêm marcados. Desmarque os que não quer em cada aba.",
-    show_graph: "Exibir o gráfico",
-    period: "Período do gráfico",
-    days_to_show: "Dias exibidos no gráfico",
-    "period.5minute": "5 minutos",
-    "period.hour": "Hora",
-    "period.day": "Dia",
-    "period.week": "Semana",
-    "period.month": "Mês",
-  },
+  title: "Title",
+  tabs: "Tabs to show",
+  body_type: "Composition map figure",
+  default_tab: "Starting tab",
+  mass_entities: "Sensors in the Weight tab",
+  percentage_entities: "Sensors in the Percentage tab",
+  sensors_hint: "All sensors are checked by default. Uncheck the ones you do not want in each tab.",
+  show_graph: "Show the graph",
+  period: "Graph period",
+  days_to_show: "Days shown in the graph",
+  "period.5minute": "5 minutes",
+  "period.hour": "Hour",
+  "period.day": "Day",
+  "period.week": "Week",
+  "period.month": "Month",
 };
 
 class HaInbodyCardEditor extends HTMLElement {
@@ -530,18 +626,12 @@ class HaInbodyCardEditor extends HTMLElement {
     this._update();
   }
 
-  _lang() {
-    const h = this._hass || {};
-    const lang = (h.locale && h.locale.language) || h.language || "en";
-    return String(lang).toLowerCase().startsWith("pt") ? "pt" : "en";
-  }
-
   _t(key) {
-    return EDITOR_STRINGS[this._lang()][key] || key;
+    return EDITOR_STRINGS[key] || key;
   }
 
   _schema() {
-    const tabLabel = (k) => STRINGS[this._lang()][k];
+    const tabLabel = (k) => STRINGS[k];
     // A checklist with every sensor the tab can show.
     const sensors = (name, tab) => ({
       name,
@@ -579,7 +669,7 @@ class HaInbodyCardEditor extends HTMLElement {
         selector: {
           select: {
             mode: "dropdown",
-            options: BODY_TYPES.map((value) => ({ value, label: STRINGS[this._lang()][value] })),
+            options: BODY_TYPES.map((value) => ({ value, label: STRINGS[value] })),
           },
         },
       },
@@ -597,7 +687,7 @@ class HaInbodyCardEditor extends HTMLElement {
       },
       {
         name: "days_to_show",
-        selector: { number: { min: 1, max: 3650, mode: "box", unit_of_measurement: this._lang() === "pt" ? "dias" : "days" } },
+        selector: { number: { min: 1, max: 3650, mode: "box", unit_of_measurement: "days" } },
       },
     ];
   }
@@ -695,7 +785,7 @@ if (!window.customCards.some((c) => c.type === TAG)) {
   window.customCards.push({
     type: TAG,
     name: "HA InBody",
-    description: "InBody body composition with three tabs: weight (kg), percentage (%) and a body composition map.",
+    description: "InBody body composition with tabs for weight (kg), percentage (%), a body composition map and a BMI / body fat quadrant.",
     documentationURL: "https://github.com/jacardbr/ha-inbody",
   });
 }

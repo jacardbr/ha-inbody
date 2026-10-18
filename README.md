@@ -1,165 +1,184 @@
-# InBody para Home Assistant
+# HA InBody for Home Assistant
 
-Integração customizada (HACS) que traz a última medição da sua balança **InBody Dial H30** para o Home Assistant: peso, IMC, % de gordura, massa muscular esquelética, massa de gordura e água corporal total.
+Custom integration (HACS) that brings the latest measurement from your **InBody Dial H30** scale into Home Assistant: weight, BMI, body fat, skeletal muscle, body water, with a ready-made Lovelace card.
 
-> **Aviso:** o InBody não tem API pública para uso pessoal. Esta integração usa a API móvel do app InBody, descoberta por engenharia reversa por [rwestergren/inbody-api-mcp](https://github.com/rwestergren/inbody-api-mcp) (MIT). Ela é **não oficial** e pode parar de funcionar se o InBody mudar o app ou os servidores. Use por sua conta e risco.
+> **Disclaimer:** InBody has no public API for personal use. This integration uses the InBody mobile app's API, reverse-engineered by [rwestergren/inbody-api-mcp](https://github.com/rwestergren/inbody-api-mcp) (MIT). It is **unofficial** and may stop working if InBody changes the app or its servers. Use it at your own risk.
 
-## Como funciona
+## How it works
 
-A balança sincroniza a medição com a nuvem do InBody (via Wi-Fi/app). O Home Assistant faz login com a sua conta, na nuvem, e consulta a última medição a cada 30 minutos (configurável). Não há comunicação direta com a balança.
+The scale syncs each measurement to the InBody cloud (through Wi-Fi and the app). Home Assistant logs in to your account in the cloud and checks for the latest measurement every 30 minutes (configurable). There is no direct communication with the scale.
 
-Consequência: o dado só aparece no HA **depois** que a medição chegou ao app do InBody.
+As a result, a measurement only shows up in Home Assistant **after** it has reached the InBody app.
 
-## Instalação (HACS)
+## Installation (HACS)
 
-[![Abrir o repositório no HACS da sua instância do Home Assistant.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jacardbr&repository=ha-inbody&category=integration)
+[![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jacardbr&repository=ha-inbody&category=integration)
 
-1. Publique esta pasta como um repositório no GitHub (os arquivos `hacs.json` e `custom_components/` precisam ficar na raiz).
-2. Clique no botão **Open HACS repository on My Home Assistant** acima (ele abre este repositório direto no HACS da sua instância; na primeira vez o site pede o endereço do seu HA). Ou, manualmente, no HA: **HACS → ⋮ → Repositórios personalizados** → cole `https://github.com/jacardbr/ha-inbody`, categoria **Integração** → Adicionar.
-3. Procure por **HA InBody** no HACS e baixe.
-4. **Reinicie o Home Assistant.** Em Docker: `docker restart <nome-do-container>`. Não é preciso mexer em volumes: o HACS grava em `/config/custom_components/ha_inbody`, que já está no volume do seu `/config`.
-5. **Configurações → Dispositivos e serviços → Adicionar integração → HA InBody**.
+1. Publish this folder as a GitHub repository (`hacs.json` and `custom_components/` must be at the repository root).
+2. Click the **Open HACS repository on My Home Assistant** button above. It opens this repository directly in the HACS of your instance (the first time, the site asks for your Home Assistant address). Or do it manually: **HACS → ⋮ → Custom repositories**, paste `https://github.com/jacardbr/ha-inbody`, category **Integration**, then **Add**.
+3. Search for **HA InBody** in HACS and download it.
+4. **Restart Home Assistant.** With Docker: `docker restart <container-name>`. No volume changes are needed: HACS writes to `/config/custom_components/ha_inbody`, which is already inside your `/config` volume.
+5. Go to **Settings → Devices & services → Add integration → HA InBody**.
 
-Instalação manual (sem HACS): copie `custom_components/ha_inbody` para `<seu /config>/custom_components/ha_inbody` e reinicie.
+Manual installation (without HACS): copy `custom_components/ha_inbody` to `<your /config>/custom_components/ha_inbody` and restart.
 
-## Configuração
+## Configuration
 
-| Campo | O que colocar |
+| Field | What to enter |
 |---|---|
-| ID de login | O **telefone** usado no cadastro do app InBody, só dígitos, sem código do país nem `+`. E-mail não funciona. |
-| Senha | A senha do app InBody. |
-| País | Código ISO de 2 letras (`BR`, `US`…). O padrão é `BR`. |
-| Importar medições antigas após a configuração | Marcado por padrão. Busca todo o histórico uma única vez, em segundo plano (veja [Importar o histórico](#importar-o-histórico)). |
+| Login ID (phone number) | The **phone number** used to register in the InBody app: digits only, no country code and no `+`. Email does not work. |
+| Password | Your InBody app password. |
+| Country | 2-letter ISO code (`BR`, `US`, …). The default is `BR`. |
+| Import past measurements after setup | Checked by default. Fetches your whole history once, in the background (see [Importing history](#importing-history)). |
 
-Depois de configurada, clique em **Configurar** na integração: aparece um menu com **Alterar intervalo de atualização** (5 a 1440 min) e **Importar histórico agora**.
+After setup, click **Configure** on the integration. A menu offers **Change update interval** (5 to 1440 minutes) and **Import history now**.
 
-## Entidades
+## Entities
 
-| Entidade | Unidade |
+| Entity | Unit |
 |---|---|
-| Peso | kg |
-| IMC | kg/m² |
-| Percentual de gordura | % |
-| Massa muscular esquelética | kg |
-| Percentual de massa muscular | % |
-| Massa de gordura | kg |
-| Massa de água corporal | kg |
-| Percentual de água corporal | % |
-| Última medição | data/hora |
+| Weight | kg |
+| BMI | kg/m² |
+| Body fat percentage | % |
+| Skeletal muscle mass | kg |
+| Skeletal muscle percentage | % |
+| Body fat mass | kg |
+| Body water mass | kg |
+| Body water percentage | % |
+| Last scan | date/time |
 
-Os dois sensores em **%** de massa muscular e água corporal são calculados pela integração (massa ÷ peso × 100), não vêm prontos da API. O percentual de gordura vem direto da API.
+The **skeletal muscle percentage** and **body water percentage** sensors are calculated by the integration (mass ÷ weight × 100); the API does not provide them. Body fat percentage comes straight from the API.
 
-A entidade **Última medição** também traz, como atributos `bca` e `mfa`, **todos** os campos que a API devolveu. Qualquer métrica sem sensor próprio (gordura visceral, TMB, água intra/extracelular etc.) pode ser lida de lá com um template, por exemplo:
+Entity IDs are generated when an entity is first created (for example `sensor.inbody_weight`) and Home Assistant keeps them afterwards. If you installed an earlier version while Home Assistant was set to another language, your existing entities keep their old IDs; you can rename them under **Settings → Devices & services → Entities**.
+
+### Additional metrics
+
+The API returns more fields than the sensors above. Every other **numeric** field of the scan (for example intracellular and extracellular water, protein, minerals, fat-free mass, basal metabolic rate, visceral fat level, waist-hip ratio, or any segmental values) is exposed as an extra sensor.
+
+- Four of them are **enabled by default**: **InBody score**, **Visceral fat level**, **Waist-hip ratio** and **Basal metabolic rate**. All the other extra sensors are **disabled by default**, so your entity list is not flooded. If you installed an earlier version, those four were created disabled; enable them by hand. Enable the ones you want under **Settings → Devices & services → HA InBody → entities** (the disabled ones are listed there; select one and enable it).
+- They are discovered from your own data: the integration looks at the fields the API actually returns for your account, and adds a sensor when a new field shows up in a later scan.
+- Well-known InBody abbreviations get a readable name and unit (for example `ICW` → **Intracellular water**, kg; `BMR` → **Basal metabolic rate**, kcal). Any other field keeps its raw name, for example **BCA XYZ**, with no unit; you can rename it in the entity settings.
+- Fields nested inside other fields are flattened (for example `BCA SEG.RA`). Lists, text, dates and identifiers are ignored.
+- When you run the history import, the extra sensors you have enabled are included too.
+
+The **Last scan** entity also exposes, as the `bca` and `mfa` attributes, **every** field returned by the API, including non-numeric ones. To discover the exact field names of your account: **Settings → Devices & services → InBody → ⋮ → Download diagnostics** (the password and phone number are redacted). A field can also be read with a template, for example:
 
 ```yaml
 template:
   - sensor:
-      - name: "InBody campo exemplo"
-        state: "{{ state_attr('sensor.inbody_ultima_medicao', 'bca')['NOME_DO_CAMPO'] }}"
+      - name: "InBody example field"
+        state: "{{ state_attr('sensor.inbody_last_scan', 'bca')['FIELD_NAME'] }}"
 ```
 
-(Ajuste o `entity_id` ao que aparece no seu HA.) Para descobrir os nomes dos campos: **Dispositivos e serviços → InBody → ⋮ → Baixar diagnóstico** (a senha e o telefone são ocultados).
+(Adjust the `entity_id` to the one shown in your Home Assistant.)
 
-## Importar o histórico
+## Importing history
 
-A integração só enxerga a medição mais recente a partir do momento em que é instalada. Para trazer **todas as medições antigas** da sua conta InBody, deixe marcada a opção **Importar medições antigas após a configuração** ao adicionar a integração: a importação roda uma única vez, em segundo plano, e a opção se desmarca sozinha quando termina com sucesso. Se falhar (por exemplo, sem internet), ela tenta de novo na próxima vez que a integração carregar.
+By default the integration only sees the latest measurement from the moment it is installed. To bring in **all past measurements** of your InBody account, leave **Import past measurements after setup** checked when adding the integration. The import runs once, in the background, and the option unchecks itself when it finishes successfully. If it fails (for example, no internet), it is retried the next time the integration loads.
 
-Para importar a qualquer momento: em **Configurações → Dispositivos e serviços → HA InBody → Configurar**, escolha **Importar histórico agora** e confirme. Ao terminar, o HA mostra quantas medições foram encontradas e quantos pontos foram gravados.
+To import at any time, go to **Settings → Devices & services → HA InBody → Configure**, choose **Import history now** and confirm. When it finishes, Home Assistant shows how many scans were found and how many points were written.
 
-Outra forma, útil para automações, é a ação `ha_inbody.import_history`:
+Another way, handy for automations, is the `ha_inbody.import_history` action:
 
-1. **Ferramentas do desenvolvedor → Ações**.
-2. Escolha **HA InBody: Importar histórico** (`ha_inbody.import_history`).
-3. Opcional: escolha a conta; vazio importa todas as contas configuradas.
-4. **Executar ação**. A resposta mostra quantas medições foram encontradas e quantos pontos foram gravados por sensor.
+1. **Developer tools → Actions**.
+2. Choose **HA InBody: Import history** (`ha_inbody.import_history`).
+3. Optional: choose the account; leaving it empty imports every configured account.
+4. **Perform action**. The response shows how many scans were found and how many points were written per sensor.
 
-O que ela faz: busca todas as medições na nuvem e grava **estatísticas de longo prazo (por hora)** nos sensores de peso, IMC, % de gordura, massa muscular, massa de gordura e água corporal. Os pontos antigos aparecem nos gráficos de estatísticas, por exemplo:
+What it does: it fetches every measurement from the cloud and writes **hourly long-term statistics** for the weight, BMI, body fat percentage, skeletal muscle, body fat mass and body water sensors, plus any enabled [extra metric](#additional-metrics) sensor. The past points show up in statistics graphs, for example:
 
 ```yaml
 type: statistics-graph
-title: Peso
+title: Weight
 entities:
-  - sensor.inbody_peso   # ajuste ao entity_id do seu HA
+  - sensor.inbody_weight   # adjust to your entity_id
 stat_types:
   - mean
 period: month
 days_to_show: 730
 ```
 
-Detalhes:
+Details:
 
-- Os sensores precisam já existir, ou seja, rode a ação depois de configurar a integração.
-- É seguro executar de novo: as mesmas horas são sobrescritas com os mesmos valores.
-- Se houver duas medições na mesma hora, vale a última.
-- As medições antigas aparecem nos **gráficos de estatísticas**, não no cartão **Histórico** (que mostra estados registrados, e não estatísticas).
-- A importação usa a API de estatísticas do recorder, que mudou em versões recentes do HA. Se a ação reclamar da versão, atualize o Home Assistant.
+- The sensors must already exist, so run the action after the integration is configured.
+- It is safe to run again: the same hours are overwritten with the same values.
+- If there are two measurements in the same hour, the last one wins.
+- Past measurements show up in **statistics graphs**, not in the **History** card (which shows recorded states, not statistics).
+- The import uses the recorder statistics API, which changed in recent Home Assistant versions. If the action complains about the version, update Home Assistant.
 
-## Card do Lovelace
+## Lovelace card
 
-A integração traz um card pronto, com três abas: **Peso** (peso, massa muscular esquelética, massa de gordura e massa de água, em kg) e **Percentual** (% de gordura, % de massa muscular e % de água). Cada aba mostra os valores atuais e um gráfico de estatísticas, então o histórico importado aparece ali. A terceira aba, **Composição**, mostra um mapa do corpo em faixas: **água corporal (azul)**, **massa muscular esquelética (verde)** e **gordura corporal (laranja)**, cada uma com seu percentual e seus kg. A altura das faixas é proporcional aos três valores; como a água corporal se sobrepõe ao músculo e à gordura, as faixas não somam 100%. A figura pode ser de homem ou de mulher. IMC e última medição não entram nas abas.
+The integration ships a ready-to-use card with four tabs:
 
-Não é preciso adicionar nenhum recurso: o HA carrega o card sozinho junto com a integração. Depois de atualizar, **reinicie o HA** e recarregue o navegador sem cache (Ctrl+F5). Então edite o painel, **Adicionar card → HA InBody**, ou cole em YAML:
+- **Weight**: weight, skeletal muscle mass, body fat mass and body water mass, in kg.
+- **Percentage**: body fat, skeletal muscle and body water, in %.
+- **Composition**: a body map cut into bands: **body water (blue)**, **skeletal muscle (green)** and **body fat (orange)**, each with its percentage and kg. The band heights are proportional to the three values; because body water overlaps muscle and fat, the bands do not add up to 100%. The figure can be a man or a woman.
+- **Quadrant**: a body type grid with **BMI** on the vertical axis and **percent body fat** on the horizontal axis. A dot marks your latest measurement and its region is highlighted: Athletic, Overweight, Obesity, Muscular, Average, Mild Obesity, Slim Muscular, Slim, Sarcopenic Obesity, Thin or Slightly Thin. The grid has four columns (body fat below 10 %, 10–15 %, 15–20 %, 20 % and above) and four rows (BMI 25 and above, 21.75–25, 18.5–21.75, below 18.5). It needs the BMI and body fat percentage sensors. The cut-off values were read off a chart of the InBody app, they are not published by InBody, so treat the region name as an approximation.
+
+The Weight and Percentage tabs show the current values and a statistics graph, so the imported history shows up there. BMI and last scan are not part of the tabs.
+
+No resource needs to be added: Home Assistant loads the card by itself together with the integration. After updating, **restart Home Assistant** and hard-refresh the browser (Ctrl+F5). Then edit a dashboard, **Add card → HA InBody**, or paste in YAML:
 
 ```yaml
 type: custom:ha-inbody-card
 ```
 
-Tudo pode ser configurado pelo **editor visual** (ao adicionar ou editar o card): título, abas exibidas, aba inicial, tipo de corpo do mapa, sensores de cada aba, exibir o gráfico, período e dias do gráfico. Cada aba tem uma lista com todos os sensores possíveis, todos marcados por padrão; desmarque os que não quer ver. O editor grava só o que difere do padrão. Em YAML, as opções (todas opcionais) são:
+Everything can be set in the **visual editor** (when adding or editing the card): title, tabs to show, starting tab, body map figure, the sensors of each tab, show the graph, graph period and days. Each tab has a checklist with every possible sensor, all checked by default; uncheck the ones you do not want. The editor only stores what differs from the defaults. In YAML, the options (all optional) are:
 
-| Opção | Para que serve |
+| Option | Purpose |
 |---|---|
-| `title` | Título do card. Sem isso, não há título. |
-| `tabs` | Abas exibidas: `mass`, `percentage` e/ou `composition`. O padrão é as três. Com uma só aba, a barra de abas some. |
-| `body_type` | Figura do mapa: `male` (homem, padrão) ou `female` (mulher). |
-| `default_tab` | Aba inicial: `mass`, `percentage` ou `composition`. O padrão é `mass`. |
-| `period` | Agrupamento do gráfico: `5minute`, `hour`, `day`, `week` ou `month`. O padrão é `month`. |
-| `days_to_show` | Quantos dias o gráfico cobre. O padrão é 365. |
-| `show_graph` | `false` mostra só os valores, sem gráfico. |
-| `mass_entities` | Sensores exibidos na aba Peso. Sem isso, todos os sensores de massa detectados. |
-| `percentage_entities` | Sensores exibidos na aba Percentual. Sem isso, todos os sensores de percentual detectados. |
-| `device_id` | Qual conta usar quando há mais de uma conta InBody configurada. |
+| `title` | Card title. Without it there is no title. |
+| `tabs` | Tabs to show: `mass`, `percentage`, `composition` and/or `quadrant`. The default is all four. With a single tab, the tab bar is hidden. |
+| `body_type` | Figure of the composition map: `male` (default) or `female`. |
+| `default_tab` | Starting tab: `mass`, `percentage`, `composition` or `quadrant`. The default is `mass`. |
+| `period` | Graph grouping: `5minute`, `hour`, `day`, `week` or `month`. The default is `month`. |
+| `days_to_show` | How many days the graph covers. The default is 365. |
+| `show_graph` | `false` shows only the values, without the graph. |
+| `mass_entities` | Sensors shown in the Weight tab. Without it, every detected mass sensor. |
+| `percentage_entities` | Sensors shown in the Percentage tab. Without it, every detected percentage sensor. |
+| `device_id` | Which account to use when more than one InBody account is configured. |
 
-Exemplo:
+Example:
 
 ```yaml
 type: custom:ha-inbody-card
-title: Minha balança
+title: My scale
 default_tab: percentage
 period: week
 days_to_show: 365
 mass_entities:
-  - sensor.inbody_peso   # ajuste ao entity_id do seu HA
+  - sensor.inbody_weight   # adjust to your entity_id
 ```
 
-O idioma (português ou inglês) segue o do seu perfil no HA. Se nenhum sensor for encontrado, o card avisa; nesse caso liste as entidades em `mass_entities` / `percentage_entities`. No app do celular, para ver a versão nova do card, use **Configurações → Aplicativo complementar → Solução de problemas → Redefinir cache do frontend**.
+The card is in English. If no sensor is found, the card says so; in that case list the entities in `mass_entities` / `percentage_entities`. In the mobile app, to see a new version of the card use **Settings → Companion app → Troubleshooting → Reset frontend cache**.
 
-> O card foi testado em Chromium com o HA simulado, não em um Home Assistant real.
+> The card was tested in Chromium with a simulated Home Assistant, not in a real Home Assistant.
 
-## Problemas comuns
+## Troubleshooting
 
-- **"Falha no login"**: confira se está usando o telefone (não o e-mail), só dígitos.
-- **"O InBody não publica um servidor de API para esse código de país"**: o país não está na tabela de hosts do InBody; tente o país onde o app foi cadastrado.
-- **Sensores "desconhecido"**: a conta ainda não tem nenhuma medição na nuvem. Meça e confirme que ela aparece no app.
-- **Pediu para autenticar de novo**: a senha mudou ou o InBody invalidou o login; o HA mostra o aviso de reautenticação.
-- Logs: ative `logger: logs: custom_components.ha_inbody: debug` no `configuration.yaml`.
+- **"Login failed"**: check that you are using the phone number (not the email), digits only.
+- **"InBody does not publish an API host for this country code"**: the country is not in InBody's host table; try the country where the app account was registered.
+- **Sensors "unknown"**: the account has no measurement in the cloud yet. Take a measurement and confirm it shows up in the app.
+- **Asked to re-authenticate**: the password changed or InBody invalidated the login; Home Assistant shows the re-authentication notice.
+- Logs: enable `logger: logs: custom_components.ha_inbody: debug` in `configuration.yaml`.
 
-## Privacidade
+## Privacy
 
-Telefone e senha ficam guardados no armazenamento do Home Assistant (`/config/.storage`), em texto simples, como acontece com a maioria das integrações em nuvem. Proteja o backup do seu `/config`.
+Phone number and password are stored in Home Assistant's storage (`/config/.storage`) in plain text, as with most cloud integrations. Protect your `/config` backups.
 
-## Desenvolvimento
+## Development
 
-Testes da camada de API (só biblioteca padrão):
+API layer tests (standard library only):
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Testes do card (precisam de um Chrome/Chromium; deve imprimir `RESULT: PASS`):
+Card tests (need Chrome/Chromium; should print `RESULT: PASS`):
 
 ```bash
 chromium --headless --no-sandbox --disable-gpu --dump-dom \
   --virtual-time-budget=5000 file://$PWD/tests/card_test.html | grep -o "RESULT[^<]*"
 ```
 
-Créditos: protocolo da API por [rwestergren/inbody-api-mcp](https://github.com/rwestergren/inbody-api-mcp).
+Credits: API protocol by [rwestergren/inbody-api-mcp](https://github.com/rwestergren/inbody-api-mcp).

@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import MassConverter
 
 from .const import DOMAIN
+from .metrics import extra_metrics, read_metric
 from .sensor import SENSORS
 from .stats_util import hourly_points
 
@@ -63,37 +64,23 @@ async def async_import_history(
         if not points:
             continue
 
-        # Statistics must be stored in the unit the entity currently reports.
-        state = hass.states.get(entity_id)
-        unit = (
-            state.attributes.get("unit_of_measurement")
-            if state is not None
-            else None
-        ) or desc.native_unit_of_measurement
+        count = _write_statistics(hass, entity_id, points, desc.native_unit_of_measurement)
+        imported[entity_id] = count
 
-        unit_class: str | None = None
-        if desc.native_unit_of_measurement == UnitOfMass.KILOGRAMS:
-            unit_class = "mass"
-            if unit != UnitOfMass.KILOGRAMS:
-                points = [
-                    (start, MassConverter.convert(v, UnitOfMass.KILOGRAMS, unit))
-                    for start, v in points
-                ]
-
-        metadata = StatisticMetaData(
-            mean_type=StatisticMeanType.ARITHMETIC,
-            has_sum=False,
-            name=None,
-            source="recorder",
-            statistic_id=entity_id,
-            unit_class=unit_class,
-            unit_of_measurement=unit,
-        )
-        statistics = [
-            StatisticData(start=start, mean=v, min=v, max=v) for start, v in points
-        ]
-        async_import_statistics(hass, metadata, statistics)
-        imported[entity_id] = len(statistics)
+    # Extra metric sensors (only the ones the user enabled).
+    metrics = {m.slug: m for scan in scans for m in extra_metrics(scan.bca, scan.mfa)}
+    prefix = f"{coordinator.uid}_"
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if reg_entry.disabled_by is not None or not reg_entry.unique_id.startswith(prefix):
+            continue
+        metric = metrics.get(reg_entry.unique_id[len(prefix) :])
+        if metric is None:
+            continue
+        points = hourly_points(scans, lambda s, m=metric: read_metric(s.bca, s.mfa, m))
+        if points:
+            imported[reg_entry.entity_id] = _write_statistics(
+                hass, reg_entry.entity_id, points, metric.unit
+            )
 
     _LOGGER.info(
         "Imported InBody history: %d scans, %d hourly points across %d sensors",
@@ -102,3 +89,39 @@ async def async_import_history(
         len(imported),
     )
     return {"scans_found": len(scans), "statistics_imported": imported}
+
+
+def _write_statistics(
+    hass: HomeAssistant,
+    entity_id: str,
+    points: list[tuple[Any, float]],
+    native_unit: str | None,
+) -> int:
+    """Write hourly points for one entity; returns how many were written."""
+    # Statistics must be stored in the unit the entity currently reports.
+    state = hass.states.get(entity_id)
+    unit = (
+        state.attributes.get("unit_of_measurement") if state is not None else None
+    ) or native_unit
+
+    unit_class: str | None = None
+    if native_unit == UnitOfMass.KILOGRAMS:
+        unit_class = "mass"
+        if unit != UnitOfMass.KILOGRAMS:
+            points = [
+                (start, MassConverter.convert(v, UnitOfMass.KILOGRAMS, unit))
+                for start, v in points
+            ]
+
+    metadata = StatisticMetaData(
+        mean_type=StatisticMeanType.ARITHMETIC,
+        has_sum=False,
+        name=None,
+        source="recorder",
+        statistic_id=entity_id,
+        unit_class=unit_class,
+        unit_of_measurement=unit,
+    )
+    statistics = [StatisticData(start=start, mean=v, min=v, max=v) for start, v in points]
+    async_import_statistics(hass, metadata, statistics)
+    return len(statistics)

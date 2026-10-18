@@ -14,7 +14,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import PERCENTAGE, UnitOfMass
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -23,6 +23,7 @@ from . import InBodyConfigEntry
 from .api import InBodyScan
 from .const import DOMAIN
 from .coordinator import InBodyCoordinator
+from .metrics import ExtraMetric, extra_metrics, read_metric
 from .stats_util import percent_of
 
 
@@ -141,6 +142,23 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     async_add_entities(InBodySensor(coordinator, desc) for desc in SENSORS)
 
+    # Every other numeric field the API returns becomes an extra sensor, disabled
+    # by default. New fields that show up in later scans are added as they appear.
+    known: set[str] = set()
+
+    @callback
+    def _add_extra_sensors() -> None:
+        scan = coordinator.data
+        if scan is None:
+            return
+        new = [m for m in extra_metrics(scan.bca, scan.mfa) if m.slug not in known]
+        if new:
+            known.update(m.slug for m in new)
+            async_add_entities(InBodyExtraSensor(coordinator, m) for m in new)
+
+    _add_extra_sensors()
+    entry.async_on_unload(coordinator.async_add_listener(_add_extra_sensors))
+
 
 class InBodySensor(CoordinatorEntity[InBodyCoordinator], SensorEntity):
     """A sensor reading one value from the latest scan."""
@@ -178,3 +196,31 @@ class InBodySensor(CoordinatorEntity[InBodyCoordinator], SensorEntity):
             return None
         scan = self.coordinator.data
         return {"raw_datetime": scan.raw_datetime, "bca": scan.bca, "mfa": scan.mfa}
+
+
+class InBodyExtraSensor(CoordinatorEntity[InBodyCoordinator], SensorEntity):
+    """A sensor for one extra numeric field of the BCA / MFA block."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: InBodyCoordinator, metric: ExtraMetric) -> None:
+        super().__init__(coordinator)
+        self._metric = metric
+        self._attr_entity_registry_enabled_default = metric.featured
+        self._attr_unique_id = f"{coordinator.uid}_{metric.slug}"
+        self._attr_name = metric.name
+        self._attr_native_unit_of_measurement = metric.unit
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.uid)},
+            name="InBody",
+            manufacturer="InBody",
+            model="Dial H30",
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        scan = self.coordinator.data
+        if scan is None:
+            return None
+        return read_metric(scan.bca, scan.mfa, self._metric)
