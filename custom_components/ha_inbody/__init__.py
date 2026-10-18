@@ -111,6 +111,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the Lovelace card and the domain-level actions."""
     await _async_register_card(hass)
 
+    from . import websocket as inbody_websocket
+
+    inbody_websocket.async_register(hass)
+
     async def _import_history(call: ServiceCall) -> ServiceResponse:
         # Imported lazily so the rest of the integration keeps working on
         # Home Assistant versions without the newer statistics API.

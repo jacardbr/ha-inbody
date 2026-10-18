@@ -146,3 +146,22 @@ def read_metric(bca: dict[str, Any], mfa: dict[str, Any], metric: ExtraMetric) -
             return None
         node = node.get(part)
     return _number(node)
+
+
+def scan_payload(scan: Any, descriptions: Any) -> dict[str, Any]:
+    """JSON-friendly view of a scan for the card: its time and numeric values.
+
+    `descriptions` are the sensor descriptions (anything with `key` and
+    `value_fn`); non-numeric ones, such as the timestamp sensor, are skipped.
+    """
+    values: dict[str, float] = {}
+    for description in descriptions:
+        try:
+            value = description.value_fn(scan)
+        except Exception:  # noqa: BLE001 - one odd field must not hide the scan
+            continue
+        number = _number(value)
+        if number is not None:
+            values[description.key] = number
+    taken = getattr(scan, "taken_at", None)
+    return {"taken_at": taken.isoformat() if taken else None, "values": values}

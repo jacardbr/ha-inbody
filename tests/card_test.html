@@ -82,6 +82,131 @@ const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) 
      ["sensor.inbody_weight", "sensor.inbody_skeletal_muscle_mass", "sensor.inbody_body_fat_mass", "sensor.inbody_body_water_mass"],
      "mass entities discovered in order (BMI/other integration excluded)");
   eq(massStack.__cfg.cards.map((x) => x.type), ["entities", "statistics-graph"], "entities + graph");
+  {
+    const g = massStack.__cfg.cards[1].entities;
+    const col = (id) => (g.find((x) => (x.entity || x) === id) || {}).color;
+    eq(g.filter((x) => typeof x === "object").length, g.length, "all graph series coloured");
+    eq(col("sensor.inbody_weight"), "#e53935", "weight is red");
+  }
+  // weigh-in navigation: last line of Composition and Quadrant
+  {
+    const full = (bmi, pbf, w) => ({ bmi, body_fat_percentage: pbf, skeletal_muscle_percentage: 40, body_water_percentage: 55,
+      body_fat_mass: pbf * w / 100, skeletal_muscle_mass: 30, body_water_mass: 40, weight: w });
+    const scans = [
+      { taken_at: "2026-06-01T08:00:00-03:00", values: full(31, 25, 95) },
+      { taken_at: "2026-07-01T08:00:00-03:00", values: full(22, 12, 70) },
+      { taken_at: "2026-08-01T08:00:00-03:00", values: full(20, 17, 65) },
+      { taken_at: "2026-09-01T08:00:00-03:00", values: full(26.3, 19.6, 80) },
+    ].reverse(); // unordered on purpose
+    const st = baseStates();
+    st["sensor.inbody_bmi"] = { state: "26.3", attributes: {} };
+    st["sensor.inbody_body_fat_percentage"] = { state: "19.6", attributes: {} };
+    st["sensor.inbody_last_scan"] = { state: "2026-09-01T08:00:00-03:00", attributes: {} };
+    const calls = [];
+    const callWS = async (msg) => { calls.push(msg); return { scans }; };
+
+    // no websocket / a single scan -> no navigation
+    const plain = make({ default_tab: "quadrant" }, { states: st });
+    await tick();
+    ok(root(plain).querySelector(".nav").hidden, "nav hidden without callWS");
+    plain.remove();
+
+    const ents = Object.fromEntries(Object.entries(baseEntities()).map(([k, v]) => [k, { ...v, device_id: "dev1" }]));
+    const cn = make({ default_tab: "quadrant", device_id: "dev1" }, { states: st, callWS, entities: ents });
+    await tick(); await tick();
+    eq(calls.length, 1, "scans requested once");
+    eq(calls[0], { type: "ha_inbody/scans", device_id: "dev1" }, "scans request");
+    const qp = panel(cn, "quadrant");
+    const nav = qp.querySelector(".nav");
+    ok(!nav.hidden, "nav visible with several scans");
+    ok(qp.lastElementChild === nav, "nav is the last line of the quadrant tab");
+    ok(panel(cn, "composition").lastElementChild.classList.contains("nav"), "nav is the last line of the composition tab");
+    const label = () => nav.querySelector(".navlabel").textContent;
+    const region = () => qp.querySelector("svg").getAttribute("data-region");
+    ok(label().includes("4 / 4"), "starts on the latest: " + label());
+    eq(region(), "Overweight", "latest region");
+    ok(nav.querySelector(".next").disabled && nav.querySelector(".last").disabled, "cannot go past the latest");
+    const click = (cls) => nav.querySelector("." + cls).click();
+    click("prev");
+    ok(label().includes("3 / 4"), "back one: " + label());
+    eq(region(), "Average", "previous weigh-in region");
+    ok(nav.classList.contains("past"), "marked as a past weigh-in");
+    click("prev"); click("prev");
+    ok(label().includes("1 / 4"), "back to the oldest");
+    eq(region(), "Obesity", "oldest region");
+    ok(nav.querySelector(".prev").disabled && nav.querySelector(".first").disabled, "cannot go before the oldest");
+    // composition shows the same weigh-in
+    ok(panel(cn, "composition").textContent.includes("95.0 kg"), "composition follows the date");
+    click("next");
+    eq(region(), "Muscular", "forward one");
+    click("last");
+    ok(label().includes("4 / 4") && !nav.classList.contains("past"), "jump to the latest");
+    eq(region(), "Overweight", "back on the live values");
+    click("first");
+    eq(region(), "Obesity", "jump to the first");
+    // a new weigh-in arrives: reload and go back to the latest
+    st["sensor.inbody_last_scan"] = { state: "2026-10-01T08:00:00-03:00", attributes: {} };
+    cn.hass = { ...cn._hass, states: { ...st } };
+    await tick(); await tick();
+    eq(calls.length, 2, "reloaded after a new scan");
+    ok(!nav.classList.contains("past"), "back on the latest after a new scan");
+    cn.remove();
+  }
+  // last weigh-in line: under the tabs, every tab, colour by age
+  {
+    const dayAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
+    const lineFor = async (n, extraTab) => {
+      const st = baseStates();
+      st["sensor.inbody_last_scan"] = { state: n === null ? "unknown" : dayAgo(n), attributes: {} };
+      const cl = make({ default_tab: extraTab }, { states: st });
+      await tick();
+      const line = root(cl).querySelector(".lastscan");
+      const first = root(cl).querySelector("ha-card").firstElementChild;
+      const out = { line, first, cls: line.className, hidden: line.hidden, text: line.textContent, card: cl };
+      return out;
+    };
+    let r1 = await lineFor(2);
+    ok(r1.line.previousElementSibling.classList.contains("tabs"), "last weigh-in sits right under the tabs");
+    ok(r1.line.nextElementSibling.classList.contains("panel"), "and above the panels");
+    eq(r1.cls, "lastscan", "recent: normal colour");
+    ok(/Last weigh-in: .* · 2 days ago/.test(r1.text), "recent text: " + r1.text);
+    r1.card.remove();
+    for (const [n, cls, word] of [[6.9, "lastscan", "6 days"], [7.1, "lastscan warn", "7 days"], [29.9, "lastscan warn", "4 weeks"], [30.1, "lastscan alert", "4 weeks"], [400, "lastscan alert", "13 months"], [800, "lastscan alert", "2 years"]]) {
+      const r2 = await lineFor(n);
+      eq(r2.cls, cls, `age ${n} days colour`);
+      ok(r2.text.includes(word + " ago"), `age ${n} days text: ${r2.text}`);
+      r2.card.remove();
+    }
+    const r3 = await lineFor(null);
+    ok(r3.hidden, "hidden when the sensor has no date");
+    r3.card.remove();
+    const r4 = await lineFor(40, "quadrant");
+    ok(!r4.hidden && r4.cls.includes("alert"), "also visible on another tab");
+    // it sits above the tabs, outside the panels
+    ok(!r4.line.closest(".panel"), "not inside a panel");
+    r4.card.remove();
+    // updates when the sensor changes
+    const st = baseStates();
+    st["sensor.inbody_last_scan"] = { state: dayAgo(40), attributes: {} };
+    const cu = make({}, { states: st });
+    await tick();
+    st["sensor.inbody_last_scan"] = { state: dayAgo(0.1), attributes: {} };
+    cu.hass = { ...cu._hass, states: { ...st } };
+    eq(root(cu).querySelector(".lastscan").className, "lastscan", "colour updates with a new scan");
+    cu.remove();
+  }
+  {
+    const st = baseStates();
+    st["sensor.inbody_weight"] = { state: "85", attributes: { friendly_name: "InBody Weight" } };
+    st["sensor.inbody_body_fat_mass"] = { state: "16", attributes: { friendly_name: "inbody Body fat mass" } };
+    const cn = make({}, { states: st });
+    await tick();
+    const stack = panel(cn, "mass").querySelector(".stub-vertical-stack");
+    const rowName = (list, id) => (list.find((x) => x.entity === id) || {}).name;
+    eq(rowName(stack.__cfg.cards[0].entities, "sensor.inbody_weight"), "Weight", "InBody prefix removed (rows)");
+    eq(rowName(stack.__cfg.cards[1].entities, "sensor.inbody_body_fat_mass"), "Body fat mass", "InBody prefix removed (legend)");
+    cn.remove();
+  }
   const g = massStack.__cfg.cards[1];
   eq([g.stat_types, g.period, g.days_to_show, g.chart_type], [["mean"], "month", 365, "line"], "graph defaults");
   ok(!panel(c, "percentage").querySelector(".stub-vertical-stack"), "percentage tab is lazy");

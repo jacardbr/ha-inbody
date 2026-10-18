@@ -97,5 +97,23 @@ class FeaturedTests(unittest.TestCase):
         self.assertFalse(metrics["bca_icw"].featured)
 
 
+class PayloadTests(unittest.TestCase):
+    def test_scan_payload(self):
+        from datetime import datetime, timezone
+        from types import SimpleNamespace as NS
+
+        scan = NS(taken_at=datetime(2026, 9, 27, 7, 52, tzinfo=timezone.utc))
+        sensors = [
+            NS(key="weight", value_fn=lambda s: 85.9),
+            NS(key="bmi", value_fn=lambda s: "29"),
+            NS(key="missing", value_fn=lambda s: None),
+            NS(key="last_scan", value_fn=lambda s: s.taken_at),
+            NS(key="broken", value_fn=lambda s: 1 / 0),
+        ]
+        out = m.scan_payload(scan, sensors)
+        self.assertEqual(out["taken_at"], "2026-09-27T07:52:00+00:00")
+        self.assertEqual(out["values"], {"weight": 85.9, "bmi": 29.0})
+
+
 if __name__ == "__main__":
     unittest.main()

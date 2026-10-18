@@ -1,7 +1,7 @@
 /*
  * HA InBody card
  *
- * Three tabs for the InBody sensors:
+ * Tabs for the body composition sensors:
  *   - Weight / mass (kg): weight, skeletal muscle, body fat, body water
  *   - Percentage (%):     body fat, skeletal muscle, body water
  *   - Body composition:   body map (male or female figure) with water,
@@ -43,6 +43,24 @@ const COMPOSITION_KEYS = [
   "body_water_mass",
   "weight",
 ];
+// Entity name without the "InBody" device prefix ("InBody Weight" -> "Weight").
+function shortName(hass, entityId) {
+  const st = hass && hass.states && hass.states[entityId];
+  const name = (st && st.attributes && st.attributes.friendly_name) || "";
+  const short = name.replace(/^\s*InBody\s+/i, "").trim();
+  return short || undefined;
+}
+
+// Graph line colours, the same palette as the composition map; weight is red.
+const SERIES_COLORS = {
+  weight: "#e53935",
+  body_water_mass: "#1e88e5",
+  body_water_percentage: "#1e88e5",
+  skeletal_muscle_mass: "#43a047",
+  skeletal_muscle_percentage: "#43a047",
+  body_fat_mass: "#fb8c00",
+  body_fat_percentage: "#fb8c00",
+};
 const BODY_TYPES = ["male", "female"];
 // Original, simple silhouettes (union of rounded shapes used as a clip path).
 const SILHOUETTES = {
@@ -74,6 +92,11 @@ const STRINGS = {
   percentage: "Percentage",
   composition: "Composition",
   quadrant: "Quadrant",
+  last_scan: "Last weigh-in",
+  nav_first: "First weigh-in",
+  nav_prev: "Previous weigh-in",
+  nav_next: "Next weigh-in",
+  nav_last: "Latest weigh-in",
   quad_empty: "The quadrant needs the BMI and body fat percentage sensors.",
   quad_label: "Body type quadrant: BMI against percent body fat",
   quad_bmi: "BMI",
@@ -90,7 +113,7 @@ const STRINGS = {
   map_label: "Body composition map",
   map_empty: "The body composition map needs the body water, skeletal muscle and body fat percentage sensors.",
   empty:
-    "No InBody sensors found. Check that the HA InBody integration is set up, or list the entities in the card options (mass_entities / percentage_entities).",
+    "No sensors found. Check that the integration is set up, or list the entities in the card options (mass_entities / percentage_entities).",
 };
 
 // ---- quadrant ("body type"): BMI against percent body fat ---------------------
@@ -134,6 +157,22 @@ const CSS = `
     line-height: 32px;
     color: var(--ha-card-header-color, var(--primary-text-color));
   }
+  .lastscan { padding: 12px 16px 0; font-size: 13px; color: var(--secondary-text-color); }
+  .lastscan b { font-weight: 600; color: var(--primary-text-color); }
+  .lastscan.warn, .lastscan.warn b { color: #fb8c00; }
+  .lastscan.alert, .lastscan.alert b { color: #e53935; }
+  .nav { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 12px 12px; }
+  .nav[hidden] { display: none; }
+  .nav button {
+    border: none; background: none; cursor: pointer; font: inherit; font-size: 20px; line-height: 1;
+    width: 36px; height: 36px; border-radius: 50%; color: var(--primary-text-color);
+  }
+  .nav button:hover:not([disabled]) { background: var(--secondary-background-color, rgba(127,127,127,.15)); }
+  .nav button:focus-visible { outline: 2px solid var(--primary-color); }
+  .nav button[disabled] { opacity: .3; cursor: default; }
+  .nav .navlabel { min-width: 170px; text-align: center; font-size: 13px; color: var(--secondary-text-color); }
+  .nav .navlabel b { color: var(--primary-text-color); font-weight: 600; }
+  .nav.past .navlabel, .nav.past .navlabel b { color: var(--primary-color); }
   .tabs { display: flex; border-bottom: 1px solid var(--divider-color); }
   .tab {
     flex: 1;
@@ -223,6 +262,28 @@ function el(tag, props = {}, text) {
   return node;
 }
 
+// Date in the user's language, e.g. "Oct 15, 2026".
+function fmtDate(hass, when) {
+  const lang = (hass && ((hass.locale && hass.locale.language) || hass.language)) || "en";
+  try {
+    return when.toLocaleDateString(lang, { year: "numeric", month: "short", day: "numeric" });
+  } catch (e) {
+    return when.toLocaleDateString();
+  }
+}
+
+// How long ago a date was, in words ("today", "3 days ago", "2 weeks ago").
+function ago(days) {
+  const n = Math.floor(days);
+  const plural = (v, unit) => `${v} ${unit}${v === 1 ? "" : "s"} ago`;
+  if (n < 1) return "today";
+  if (n === 1) return "yesterday";
+  if (n < 14) return plural(n, "day");
+  if (n < 60) return plural(Math.floor(n / 7), "week");
+  if (n < 730) return plural(Math.floor(n / 30.44), "month");
+  return plural(Math.floor(n / 365.25), "year");
+}
+
 class HaInbodyCard extends HTMLElement {
   constructor() {
     super();
@@ -237,6 +298,14 @@ class HaInbodyCard extends HTMLElement {
     this._panels = {};
     this._buttons = {};
     this._gen = 0;
+    this._lastEl = null;
+    this._bodies = {};
+    this._navs = {};
+    this._scans = null; // every weigh-in, oldest first: [{ t: Date, values }]
+    this._pos = null; // null = the latest one (live sensors), else an index in _scans
+    this._scansFor = null;
+    this._scansBusy = false;
+    this._scansWanted = false;
   }
 
   // ---- Lovelace card API -------------------------------------------------
@@ -319,8 +388,31 @@ class HaInbodyCard extends HTMLElement {
       this._build();
     }
     for (const card of Object.values(this._inner)) card.hass = this._hass;
+    this._renderLastScan();
+    if (this._scansWanted) this._loadScans();
     if (this._panels.composition) this._renderComposition();
     if (this._panels.quadrant) this._renderQuadrant();
+    this._renderNav();
+  }
+
+  // First line under the tabs, shown on every tab: date of the last weigh-in, orange
+  // after more than a week and red after more than a month.
+  _renderLastScan() {
+    const line = this._lastEl;
+    if (!line) return;
+    const id = (scanSensors(this._hass, this._config.device_id).last_scan || [])[0];
+    const st = id && this._hass.states && this._hass.states[id];
+    const when = st ? new Date(st.state) : null;
+    if (!when || Number.isNaN(when.getTime())) {
+      line.hidden = true;
+      return;
+    }
+    const days = (Date.now() - when.getTime()) / 86400000;
+    const date = fmtDate(this._hass, when);
+    line.hidden = false;
+    line.className = `lastscan${days > 30 ? " alert" : days > 7 ? " warn" : ""}`;
+    line.textContent = "";
+    line.append(`${this._t("last_scan")}: `, el("b", {}, date), ` · ${ago(days)}`);
   }
 
   _build() {
@@ -328,6 +420,8 @@ class HaInbodyCard extends HTMLElement {
     this._inner = {};
     this._panels = {};
     this._buttons = {};
+    this._bodies = {};
+    this._navs = {};
     this._compSig = null;
     this._quadSig = null;
 
@@ -349,14 +443,137 @@ class HaInbodyCard extends HTMLElement {
     // with a single tab there is nothing to switch between
     if (this._visible.length > 1) card.appendChild(tablist);
 
+    // first line under the tabs
+    this._lastEl = el("div", { class: "lastscan" });
+    this._lastEl.hidden = true;
+    card.appendChild(this._lastEl);
+
     for (const name of this._visible) {
       const panel = el("div", { class: "panel", role: "tabpanel", "data-tab": name });
       if (!this._lists[name].length && name !== "composition" && name !== "quadrant") panel.appendChild(el("div", { class: "empty" }, this._t("empty")));
+      if (name === "composition" || name === "quadrant") {
+        // content on top, the weigh-in navigation as the last line
+        const body = el("div", { class: "body" });
+        const nav = this._makeNav();
+        panel.append(body, nav);
+        this._bodies[name] = body;
+        this._navs[name] = nav;
+      }
       this._panels[name] = panel;
       card.appendChild(panel);
     }
     root.appendChild(card);
     this._select(this._active);
+    this._renderLastScan();
+    this._renderNav();
+  }
+
+  // ---- weigh-in history (Composition and Quadrant tabs) ------------------
+
+  _makeNav() {
+    const nav = el("div", { class: "nav", role: "group" });
+    nav.hidden = true;
+    const btn = (cls, label, glyph, action) => {
+      const b = el("button", { class: cls, type: "button", "aria-label": this._t(label), title: this._t(label) }, glyph);
+      b.addEventListener("click", action);
+      return b;
+    };
+    nav.append(
+      btn("first", "nav_first", "«", () => this._go("first")),
+      btn("prev", "nav_prev", "‹", () => this._go("prev")),
+      el("span", { class: "navlabel", "aria-live": "polite" }),
+      btn("next", "nav_next", "›", () => this._go("next")),
+      btn("last", "nav_last", "»", () => this._go("last"))
+    );
+    return nav;
+  }
+
+  _go(where) {
+    const n = this._scans ? this._scans.length : 0;
+    if (n < 2) return;
+    const cur = this._pos === null ? n - 1 : this._pos;
+    let next = cur;
+    if (where === "first") next = 0;
+    else if (where === "prev") next = Math.max(0, cur - 1);
+    else if (where === "next") next = Math.min(n - 1, cur + 1);
+    else if (where === "last") next = n - 1;
+    this._pos = next >= n - 1 ? null : next;
+    this._compSig = null;
+    this._quadSig = null;
+    if (this._panels.composition) this._renderComposition();
+    if (this._panels.quadrant) this._renderQuadrant();
+    this._renderNav();
+  }
+
+  _renderNav() {
+    const n = this._scans ? this._scans.length : 0;
+    const cur = this._pos === null ? n - 1 : this._pos;
+    for (const nav of Object.values(this._navs)) {
+      nav.hidden = n < 2;
+      if (n < 2) continue;
+      const when = this._scans[cur].t;
+      const label = nav.querySelector(".navlabel");
+      label.textContent = "";
+      label.append(el("b", {}, fmtDate(this._hass, when)), ` · ${cur + 1} / ${n}`);
+      nav.classList.toggle("past", this._pos !== null);
+      nav.querySelector(".first").disabled = cur === 0;
+      nav.querySelector(".prev").disabled = cur === 0;
+      nav.querySelector(".next").disabled = cur === n - 1;
+      nav.querySelector(".last").disabled = cur === n - 1;
+    }
+  }
+
+  // Loads every weigh-in from the integration (once per new scan).
+  async _loadScans() {
+    const hass = this._hass;
+    if (!hass || this._scansBusy || typeof hass.callWS !== "function") return;
+    const sig = this._lastScanState();
+    if (this._scansFor === sig) return;
+    this._scansFor = sig;
+    this._scansBusy = true;
+    try {
+      const msg = { type: `${DOMAIN}/scans` };
+      if (this._config.device_id) msg.device_id = this._config.device_id;
+      const res = await hass.callWS(msg);
+      const scans = ((res && res.scans) || [])
+        .map((s) => ({ t: new Date(s.taken_at), values: s.values || {} }))
+        .filter((s) => !Number.isNaN(s.t.getTime()))
+        .sort((a, b) => a.t - b.t);
+      this._scans = scans.length ? scans : null;
+    } catch (e) {
+      this._scans = null;
+    } finally {
+      this._scansBusy = false;
+    }
+    this._pos = null;
+    this._compSig = null;
+    this._quadSig = null;
+    if (this._panels.composition) this._renderComposition();
+    if (this._panels.quadrant) this._renderQuadrant();
+    this._renderNav();
+  }
+
+  _lastScanState() {
+    const id = (scanSensors(this._hass, this._config.device_id).last_scan || [])[0];
+    const st = id && this._hass.states && this._hass.states[id];
+    return st ? String(st.state) : "";
+  }
+
+  // Values of the sensors, or of the weigh-in being browsed.
+  _numbers(keys) {
+    if (this._pos !== null && this._scans && this._scans[this._pos]) {
+      const vals = this._scans[this._pos].values;
+      return Object.fromEntries(keys.map((k) => [k, Number.isFinite(vals[k]) ? vals[k] : null]));
+    }
+    const by = scanSensors(this._hass, this._config.device_id);
+    const states = this._hass.states || {};
+    return Object.fromEntries(
+      keys.map((k) => {
+        const id = (by[k] || [])[0];
+        const n = id && states[id] ? parseFloat(states[id].state) : NaN;
+        return [k, Number.isFinite(n) ? n : null];
+      })
+    );
   }
 
   _onKey(ev, name) {
@@ -383,17 +600,9 @@ class HaInbodyCard extends HTMLElement {
   // Body map: the silhouette is cut into three bands (body water, skeletal
   // muscle, body fat) whose heights follow their relative values.
   _renderComposition() {
-    const panel = this._panels.composition;
+    const panel = this._bodies.composition;
     if (!panel || !this._hass) return;
-    const by = scanSensors(this._hass, this._config.device_id);
-    const states = this._hass.states || {};
-    const num = (key) => {
-      const id = (by[key] || [])[0];
-      const n = id && states[id] ? parseFloat(states[id].state) : NaN;
-      return Number.isFinite(n) ? n : null;
-    };
-    const v = {};
-    for (const k of COMPOSITION_KEYS) v[k] = num(k);
+    const v = this._numbers(COMPOSITION_KEYS);
     const type = this._config.body_type === "female" ? "female" : "male";
     const sig = JSON.stringify([v, type]);
     if (sig === this._compSig) return;
@@ -469,17 +678,9 @@ class HaInbodyCard extends HTMLElement {
 
   // Quadrant: where the latest BMI and body fat percentage fall in the grid.
   _renderQuadrant() {
-    const panel = this._panels.quadrant;
+    const panel = this._bodies.quadrant;
     if (!panel || !this._hass) return;
-    const by = scanSensors(this._hass, this._config.device_id);
-    const states = this._hass.states || {};
-    const num = (key) => {
-      const id = (by[key] || [])[0];
-      const n = id && states[id] ? parseFloat(states[id].state) : NaN;
-      return Number.isFinite(n) ? n : null;
-    };
-    const bmi = num("bmi");
-    const pbf = num("body_fat_percentage");
+    const { bmi, body_fat_percentage: pbf } = this._numbers(["bmi", "body_fat_percentage"]);
     const sig = JSON.stringify([bmi, pbf]);
     if (sig === this._quadSig) return;
     this._quadSig = sig;
@@ -553,22 +754,37 @@ class HaInbodyCard extends HTMLElement {
   // Inner cards are created lazily, when their tab is first shown, so charts
   // are never measured while hidden.
   async _ensure(name) {
-    if (name === "composition") {
-      this._renderComposition();
-      return;
-    }
-    if (name === "quadrant") {
-      this._renderQuadrant();
+    if (name === "composition" || name === "quadrant") {
+      this._scansWanted = true;
+      this._loadScans();
+      if (name === "composition") this._renderComposition();
+      else this._renderQuadrant();
       return;
     }
     if (this._inner[name] || !this._lists[name].length) return;
     const gen = this._gen;
     const entities = this._lists[name];
-    const cards = [{ type: "entities", entities }];
+    const cards = [
+      {
+        type: "entities",
+        entities: entities.map((entity) => {
+          const name = shortName(this._hass, entity);
+          return name ? { entity, name } : entity;
+        }),
+      },
+    ];
+    // Entities of this integration get the colour of their measurement.
+    const registry = (this._hass && this._hass.entities) || {};
+    const coloured = entities.map((entity) => {
+      const reg = registry[entity] || {};
+      const color = reg.platform === DOMAIN ? SERIES_COLORS[reg.translation_key] : undefined;
+      const name = shortName(this._hass, entity);
+      return color || name ? { entity, ...(color ? { color } : {}), ...(name ? { name } : {}) } : entity;
+    });
     if (this._config.show_graph !== false) {
       cards.push({
         type: "statistics-graph",
-        entities,
+        entities: coloured,
         stat_types: ["mean"],
         chart_type: "line",
         period: this._config.period,
@@ -694,7 +910,7 @@ class HaInbodyCardEditor extends HTMLElement {
 
   _name(entityId) {
     const st = this._hass && this._hass.states && this._hass.states[entityId];
-    return (st && st.attributes && st.attributes.friendly_name) || entityId;
+    return shortName(this._hass, entityId) || (st && st.attributes && st.attributes.friendly_name) || entityId;
   }
 
   // Every candidate sensor of a tab: the detected ones, plus any sensor the
@@ -785,7 +1001,7 @@ if (!window.customCards.some((c) => c.type === TAG)) {
   window.customCards.push({
     type: TAG,
     name: "HA InBody",
-    description: "InBody body composition with tabs for weight (kg), percentage (%), a body composition map and a BMI / body fat quadrant.",
+    description: "Body composition with tabs for weight (kg), percentage (%), a body composition map and a BMI / body fat quadrant.",
     documentationURL: "https://github.com/jacardbr/ha-inbody",
   });
 }

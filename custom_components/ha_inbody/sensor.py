@@ -38,6 +38,13 @@ def _num(block: dict[str, Any], key: str) -> float | None:
         return None
 
 
+def _model(coordinator: InBodyCoordinator) -> str:
+    """Scale model reported by the API (for example "H30"), else a generic name."""
+    scan = coordinator.data
+    equip = str((scan.bca or {}).get("EQUIP") or "").strip() if scan else ""
+    return f"InBody {equip}" if equip else "InBody scale"
+
+
 @dataclass(frozen=True, kw_only=True)
 class InBodySensorDescription(SensorEntityDescription):
     """Sensor description with a value extractor."""
@@ -178,7 +185,7 @@ class InBodySensor(CoordinatorEntity[InBodyCoordinator], SensorEntity):
             identifiers={(DOMAIN, coordinator.uid)},
             name="InBody",
             manufacturer="InBody",
-            model="Dial H30",
+            model=_model(coordinator),
         )
 
     @property
@@ -215,7 +222,7 @@ class InBodyExtraSensor(CoordinatorEntity[InBodyCoordinator], SensorEntity):
             identifiers={(DOMAIN, coordinator.uid)},
             name="InBody",
             manufacturer="InBody",
-            model="Dial H30",
+            model=_model(coordinator),
         )
 
     @property

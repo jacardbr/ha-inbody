@@ -1,12 +1,12 @@
 # HA InBody for Home Assistant
 
-Custom integration (HACS) that brings the latest measurement from your **InBody Dial H30** scale into Home Assistant: weight, BMI, body fat, skeletal muscle, body water, with a ready-made Lovelace card.
+Custom integration (HACS) that brings your **InBody** scale measurements into Home Assistant, the latest one and your whole history: weight, BMI, body fat, skeletal muscle, body water and more, with a ready-made Lovelace card. It works with any InBody scale that syncs to the InBody app.
 
 > **Disclaimer:** InBody has no public API for personal use. This integration uses the InBody mobile app's API, reverse-engineered by [rwestergren/inbody-api-mcp](https://github.com/rwestergren/inbody-api-mcp) (MIT). It is **unofficial** and may stop working if InBody changes the app or its servers. Use it at your own risk.
 
 ## How it works
 
-The scale syncs each measurement to the InBody cloud (through Wi-Fi and the app). Home Assistant logs in to your account in the cloud and checks for the latest measurement every 30 minutes (configurable). There is no direct communication with the scale.
+The scale syncs each measurement to the InBody cloud (through Wi-Fi and the app). Home Assistant logs in to your account in the cloud and checks for the latest measurement every 30 minutes (configurable); it can also import all your past measurements (see [Importing history](#importing-history)). There is no direct communication with the scale.
 
 As a result, a measurement only shows up in Home Assistant **after** it has reached the InBody app.
 
@@ -28,7 +28,7 @@ Manual installation (without HACS): copy `custom_components/ha_inbody` to `<your
 |---|---|
 | Login ID (phone number) | The **phone number** used to register in the InBody app: digits only, no country code and no `+`. Email does not work. |
 | Password | Your InBody app password. |
-| Country | 2-letter ISO code (`BR`, `US`, …). The default is `BR`. |
+| Country | 2-letter ISO code (`US`, `BR`, …). The default is `US`. |
 | Import past measurements after setup | Checked by default. Fetches your whole history once, in the background (see [Importing history](#importing-history)). |
 
 After setup, click **Configure** on the integration. A menu offers **Change update interval** (5 to 1440 minutes) and **Import history now**.
@@ -114,6 +114,17 @@ The integration ships a ready-to-use card with four tabs:
 - **Percentage**: body fat, skeletal muscle and body water, in %.
 - **Composition**: a body map cut into bands: **body water (blue)**, **skeletal muscle (green)** and **body fat (orange)**, each with its percentage and kg. The band heights are proportional to the three values; because body water overlaps muscle and fat, the bands do not add up to 100%. The figure can be a man or a woman.
 - **Quadrant**: a body type grid with **BMI** on the vertical axis and **percent body fat** on the horizontal axis. A dot marks your latest measurement and its region is highlighted: Athletic, Overweight, Obesity, Muscular, Average, Mild Obesity, Slim Muscular, Slim, Sarcopenic Obesity, Thin or Slightly Thin. The grid has four columns (body fat below 10 %, 10–15 %, 15–20 %, 20 % and above) and four rows (BMI 25 and above, 21.75–25, 18.5–21.75, below 18.5). It needs the BMI and body fat percentage sensors. The cut-off values were read off a chart of the InBody app, they are not published by InBody, so treat the region name as an approximation.
+
+| Composition | Quadrant |
+| :---: | :---: |
+| ![Composition tab, light theme](docs/images/composition-light.png) | ![Quadrant tab, light theme](docs/images/quadrant-light.png) |
+| ![Composition tab, dark theme](docs/images/composition-dark.png) | ![Quadrant tab, dark theme](docs/images/quadrant-dark.png) |
+
+*Screenshots with sample values, in the light and dark themes.*
+
+The **Composition** and **Quadrant** tabs have a navigation control on their last line to go back and forward through your past weigh-ins: **‹** and **›** move one weigh-in, **«** and **»** jump to the first and to the latest, and the label shows the date and the position (for example `Oct 15, 2026 · 12 / 12`). Both tabs show the same date. The history is fetched from your InBody account the first time one of these tabs is shown, and again when a new weigh-in arrives; it does not need the history import. The control is hidden while there is only one weigh-in or if the history cannot be loaded.
+
+The first line under the tabs, shown on every tab, shows the date of the **last weigh-in** and how long ago it was. It turns **orange** after more than a week and **red** after more than a month, as a reminder to weigh yourself. It uses the **Last scan** sensor.
 
 The Weight and Percentage tabs show the current values and a statistics graph, so the imported history shows up there. BMI and last scan are not part of the tabs.
 
