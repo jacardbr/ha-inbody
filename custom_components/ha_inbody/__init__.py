@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import voluptuous as vol
 
@@ -48,6 +49,9 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+CARD_FILE = "ha-inbody-card.js"
+CARD_URL = f"/{DOMAIN}/{CARD_FILE}"
+
 SERVICE_IMPORT_HISTORY = "import_history"
 ATTR_CONFIG_ENTRY_ID = "config_entry_id"
 
@@ -83,8 +87,29 @@ async def _async_migrate_unique_ids(
     await er.async_migrate_entries(hass, entry.entry_id, _migrate)
 
 
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Serve the Lovelace card and load it in the frontend (best effort)."""
+    try:
+        from homeassistant.components.frontend import add_extra_js_url
+        from homeassistant.components.http import StaticPathConfig
+        from homeassistant.loader import async_get_integration
+
+        path = Path(__file__).parent / "frontend" / CARD_FILE
+        if not path.is_file() or getattr(hass, "http", None) is None:
+            return
+        integration = await async_get_integration(hass, DOMAIN)
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(CARD_URL, str(path), cache_headers=False)]
+        )
+        # The version in the query string busts the browser cache on updates.
+        add_extra_js_url(hass, f"{CARD_URL}?v={integration.version}")
+    except Exception:  # noqa: BLE001 - the card must never break the integration
+        _LOGGER.warning("Could not register the HA InBody Lovelace card", exc_info=True)
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the domain-level actions."""
+    """Register the Lovelace card and the domain-level actions."""
+    await _async_register_card(hass)
 
     async def _import_history(call: ServiceCall) -> ServiceResponse:
         # Imported lazily so the rest of the integration keeps working on

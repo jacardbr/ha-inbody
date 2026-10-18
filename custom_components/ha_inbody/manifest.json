@@ -4,6 +4,8 @@
   "codeowners": [],
   "config_flow": true,
   "dependencies": [
+    "frontend",
+    "http",
     "recorder"
   ],
   "documentation": "https://github.com/jacardbr/ha-inbody",
@@ -11,5 +13,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/jacardbr/ha-inbody/issues",
   "requirements": [],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

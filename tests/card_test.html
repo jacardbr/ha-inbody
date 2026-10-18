@@ -1,0 +1,293 @@
+<!doctype html>
+<!--
+  Browser test for frontend/ha-inbody-card.js. Run headless:
+
+    chrome --headless --no-sandbox --disable-gpu --dump-dom \
+      --virtual-time-budget=5000 file:///.../tests/card_test.html | grep RESULT
+
+  The page prints "RESULT: PASS (n checks)" or "RESULT: FAIL ..." in #out.
+-->
+<html><body><pre id="out">RUNNING</pre>
+<script>
+// ---- stubs for what Home Assistant provides ---------------------------------
+customElements.define("ha-card", class extends HTMLElement {});
+customElements.define("ha-form", class extends HTMLElement {});
+window.loadCardHelpers = async () => ({
+  createCardElement: (cfg) => {
+    const node = document.createElement("div");
+    node.className = "stub-" + cfg.type;
+    node.__cfg = cfg;
+    node.__hassCount = 0;
+    Object.defineProperty(node, "hass", { set(v) { this.__hassCount++; this.__hass = v; } });
+    return node;
+  },
+});
+</script>
+<script src="../custom_components/ha_inbody/frontend/ha-inbody-card.js"></script>
+<script>
+const failures = [];
+let checks = 0;
+const ok = (cond, msg) => { checks++; if (!cond) failures.push(msg); };
+const eq = (a, b, msg) => ok(JSON.stringify(a) === JSON.stringify(b), `${msg}: got ${JSON.stringify(a)} expected ${JSON.stringify(b)}`);
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+const ent = (id, key, extra = {}) => [id, { entity_id: id, platform: "ha_inbody", translation_key: key, ...extra }];
+const baseEntities = () => Object.fromEntries([
+  ent("sensor.inbody_weight", "weight"),
+  ent("sensor.inbody_bmi", "bmi"),
+  ent("sensor.inbody_body_fat_percentage", "body_fat_percentage"),
+  ent("sensor.inbody_skeletal_muscle_mass", "skeletal_muscle_mass"),
+  ent("sensor.inbody_skeletal_muscle_percentage", "skeletal_muscle_percentage"),
+  ent("sensor.inbody_body_fat_mass", "body_fat_mass"),
+  ent("sensor.inbody_body_water_mass", "body_water_mass"),
+  ent("sensor.inbody_body_water_percentage", "body_water_percentage"),
+  ent("sensor.inbody_last_scan", "last_scan"),
+  // a sensor from another integration that happens to share a key must be ignored
+  ["sensor.other_weight", { entity_id: "sensor.other_weight", platform: "withings", translation_key: "weight" }],
+]);
+
+const baseStates = () => Object.fromEntries(Object.entries({
+  weight: "78.4", body_fat_percentage: "22.8", skeletal_muscle_percentage: "46.2", body_water_percentage: "58.8",
+  body_fat_mass: "17.9", skeletal_muscle_mass: "36.2", body_water_mass: "46.1",
+}).map(([k, val]) => [`sensor.inbody_${k}`, { state: val, attributes: {} }]));
+
+function make(config, hassExtra = {}) {
+  const card = document.createElement("ha-inbody-card");
+  document.body.appendChild(card);
+  card.setConfig(config);
+  card.hass = { entities: baseEntities(), states: baseStates(), language: "en", ...hassExtra };
+  return card;
+}
+const root = (c) => c.shadowRoot;
+const panel = (c, name) => root(c).querySelector(`.panel[data-tab="${name}"]`);
+const tab = (c, name) => root(c).querySelector(`.tab[data-tab="${name}"]`);
+const stubs = (c, name) => [...panel(c, name).querySelectorAll("*")].filter((n) => n.__cfg);
+
+(async () => {
+  // 1. registration
+  ok(customElements.get("ha-inbody-card"), "element registered");
+  ok(window.customCards.some((c) => c.type === "ha-inbody-card"), "listed in customCards");
+
+  // 2. discovery + default tab + lazy creation
+  let c = make({});
+  await tick();
+  eq(tab(c, "mass").textContent, "Weight", "mass tab label (en)");
+  eq(tab(c, "percentage").textContent, "Percentage", "percentage tab label (en)");
+  eq(tab(c, "mass").getAttribute("aria-selected"), "true", "mass selected by default");
+  eq(tab(c, "percentage").getAttribute("aria-selected"), "false", "percentage not selected");
+  ok(!panel(c, "mass").hidden && panel(c, "percentage").hidden, "only mass panel visible");
+  const massStack = panel(c, "mass").querySelector(".stub-vertical-stack");
+  ok(massStack, "mass stack created");
+  eq(massStack.__cfg.cards[0].entities,
+     ["sensor.inbody_weight", "sensor.inbody_skeletal_muscle_mass", "sensor.inbody_body_fat_mass", "sensor.inbody_body_water_mass"],
+     "mass entities discovered in order (BMI/other integration excluded)");
+  eq(massStack.__cfg.cards.map((x) => x.type), ["entities", "statistics-graph"], "entities + graph");
+  const g = massStack.__cfg.cards[1];
+  eq([g.stat_types, g.period, g.days_to_show, g.chart_type], [["mean"], "month", 365, "line"], "graph defaults");
+  ok(!panel(c, "percentage").querySelector(".stub-vertical-stack"), "percentage tab is lazy");
+
+  // 3. switching tabs
+  tab(c, "percentage").click();
+  await tick();
+  eq(tab(c, "percentage").getAttribute("aria-selected"), "true", "percentage selected after click");
+  ok(panel(c, "mass").hidden && !panel(c, "percentage").hidden, "panels swapped");
+  const pctStack = panel(c, "percentage").querySelector(".stub-vertical-stack");
+  ok(pctStack, "percentage stack created on first visit");
+  eq(pctStack.__cfg.cards[0].entities,
+     ["sensor.inbody_body_fat_percentage", "sensor.inbody_skeletal_muscle_percentage", "sensor.inbody_body_water_percentage"],
+     "percentage entities discovered in order");
+  tab(c, "mass").click();
+  await tick();
+  eq(panel(c, "mass").querySelectorAll(".stub-vertical-stack").length, 1, "no duplicate stack when returning");
+
+  // 4. hass updates are forwarded, without rebuilding
+  const before = massStack.__hassCount;
+  c.hass = { entities: baseEntities(), language: "en" };
+  ok(massStack.__hassCount > before, "hass forwarded to inner card");
+  ok(panel(c, "mass").querySelector(".stub-vertical-stack") === massStack, "same inner card kept on hass update");
+
+  // 5. keyboard navigation
+  tab(c, "mass").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  await tick();
+  eq(tab(c, "percentage").getAttribute("aria-selected"), "true", "ArrowRight selects next tab");
+  tab(c, "percentage").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  await tick();
+  eq(tab(c, "composition").getAttribute("aria-selected"), "true", "ArrowRight reaches the composition tab");
+  tab(c, "composition").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  await tick();
+  eq(tab(c, "mass").getAttribute("aria-selected"), "true", "ArrowRight wraps around");
+
+  // 6. options: overrides, default_tab, graph options, title, no graph
+  c = make({
+    title: "Body composition", default_tab: "percentage", period: "week", days_to_show: 365,
+    mass_entities: ["sensor.a", "sensor.b"], percentage_entities: ["sensor.c"],
+  });
+  await tick();
+  eq(root(c).querySelector(".title").textContent, "Body composition", "title shown");
+  eq(tab(c, "percentage").getAttribute("aria-selected"), "true", "default_tab respected");
+  const s2 = panel(c, "percentage").querySelector(".stub-vertical-stack");
+  eq(s2.__cfg.cards[0].entities, ["sensor.c"], "percentage override used");
+  eq([s2.__cfg.cards[1].period, s2.__cfg.cards[1].days_to_show], ["week", 365], "graph options applied");
+  tab(c, "mass").click();
+  await tick();
+  eq(panel(c, "mass").querySelector(".stub-vertical-stack").__cfg.cards[0].entities, ["sensor.a", "sensor.b"], "mass override used");
+
+  c = make({ show_graph: false });
+  await tick();
+  eq(panel(c, "mass").querySelector(".stub-vertical-stack").__cfg.cards.map((x) => x.type), ["entities"], "show_graph:false -> entities only");
+
+  // 7. no sensors -> message, no inner cards
+  c = make({}, { entities: {} });
+  await tick();
+  ok(panel(c, "mass").querySelector(".empty"), "empty message in mass tab");
+  ok(panel(c, "percentage").querySelector(".empty"), "empty message in percentage tab");
+  ok(!panel(c, "mass").querySelector(".stub-vertical-stack"), "no inner card when empty");
+
+  // 8. hidden entities skipped; device_id filter (two accounts)
+  const two = {
+    ...baseEntities(),
+    ...Object.fromEntries([
+      ent("sensor.b_weight", "weight", { device_id: "dev_b" }),
+      ent("sensor.b_body_fat_percentage", "body_fat_percentage", { device_id: "dev_b" }),
+      ent("sensor.hidden_water", "body_water_mass", { hidden: true }),
+    ]),
+  };
+  for (const id of Object.keys(two)) if (id.startsWith("sensor.inbody_")) two[id].device_id = "dev_a";
+  c = make({ device_id: "dev_b" }, { entities: two });
+  await tick();
+  eq(panel(c, "mass").querySelector(".stub-vertical-stack").__cfg.cards[0].entities, ["sensor.b_weight"], "device_id filter (mass)");
+  c = make({}, { entities: two });
+  await tick();
+  const all = panel(c, "mass").querySelector(".stub-vertical-stack").__cfg.cards[0].entities;
+  ok(!all.includes("sensor.hidden_water"), "hidden entity skipped");
+  ok(all.includes("sensor.b_weight") && all.includes("sensor.inbody_weight"), "both accounts without device_id");
+
+  // 9. Portuguese
+  c = make({}, { language: "pt-BR" });
+  await tick();
+  eq([tab(c, "mass").textContent, tab(c, "percentage").textContent], ["Peso", "Percentual"], "pt labels");
+  c = make({}, { language: "en", locale: { language: "pt" } });
+  eq(tab(c, "mass").textContent, "Peso", "hass.locale.language wins");
+
+  // 10. config validation
+  let threw = false;
+  try { document.createElement("ha-inbody-card").setConfig({ mass_entities: "sensor.a" }); } catch (e) { threw = true; }
+  ok(threw, "non-list mass_entities rejected");
+  threw = false;
+  try { document.createElement("ha-inbody-card").setConfig(null); } catch (e) { threw = true; }
+  ok(threw, "null config rejected");
+
+  // 11. language change rebuilds labels, keeps working
+  c = make({});
+  await tick();
+  c.hass = { entities: baseEntities(), language: "pt" };
+  eq(tab(c, "mass").textContent, "Peso", "labels rebuilt on language change");
+  await tick();
+  ok(panel(c, "mass").querySelector(".stub-vertical-stack"), "inner card recreated after rebuild");
+
+  // 12. tabs option: single tab hides the tab bar
+  c = make({ tabs: ["percentage"] });
+  await tick();
+  ok(!root(c).querySelector(".tabs"), "single tab: no tab bar");
+  ok(!panel(c, "mass"), "single tab: mass panel not built");
+  eq(panel(c, "percentage").querySelector(".stub-vertical-stack").__cfg.cards[0].entities.length, 3, "single tab shows percentage content");
+  c = make({ tabs: ["mass"], default_tab: "percentage" });
+  await tick();
+  ok(panel(c, "mass") && !panel(c, "mass").hidden, "default_tab outside tabs falls back to the first visible tab");
+  c = make({ tabs: [] });
+  await tick();
+  ok(tab(c, "mass") && tab(c, "percentage") && tab(c, "composition"), "empty tabs list shows all three");
+  threw = false;
+  try { document.createElement("ha-inbody-card").setConfig({ tabs: ["bogus"] }); } catch (e) { threw = true; }
+  ok(threw, "invalid tab name rejected");
+
+  // 12b. composition tab: body map
+  c = make({ default_tab: "composition" });
+  await tick();
+  eq(tab(c, "composition").textContent, "Composition", "composition tab label");
+  const svg = panel(c, "composition").querySelector("svg");
+  ok(svg, "map rendered");
+  eq(svg.dataset.body, "male", "male figure by default");
+  const bandRects = [...svg.querySelectorAll("g[clip-path] rect")];
+  eq(bandRects.map((r) => r.getAttribute("fill")), ["var(--ib-water)", "var(--ib-muscle)", "var(--ib-fat)"], "bands: water, muscle, fat");
+  const hs = bandRects.map((r) => parseFloat(r.getAttribute("height")) - 0.5);
+  ok(Math.abs(hs.reduce((a, b) => a + b, 0) - 327) < 0.2, "bands fill the figure, head included");
+  ok(Math.abs(hs[0] / hs[2] - 58.8 / 22.8) < 0.01, "band heights follow the percentages");
+  const css = root(c).querySelector("style").textContent;
+  ok(/--ib-water:\s*#1e88e5/i.test(css) && /--ib-muscle:\s*#43a047/i.test(css) && /--ib-fat:\s*#fb8c00/i.test(css), "water blue, muscle green, fat orange");
+  const texts = [...svg.querySelectorAll("text.value")].map((n) => n.textContent);
+  eq(texts, ["58.8 % · 46.1 kg", "46.2 % · 36.2 kg", "22.8 % · 17.9 kg"], "labels show % and kg");
+  ok(panel(c, "composition").textContent.includes("78.4 kg"), "weight shown");
+  const maleClip = svg.querySelector("clipPath").innerHTML;
+  c = make({ default_tab: "composition", body_type: "female" });
+  await tick();
+  const fsvg = panel(c, "composition").querySelector("svg");
+  eq(fsvg.dataset.body, "female", "female figure");
+  ok(fsvg.querySelector("clipPath").innerHTML !== maleClip, "female silhouette differs from male");
+  c.hass = { entities: baseEntities(), states: { ...baseStates(), "sensor.inbody_weight": { state: "80.0", attributes: {} } }, language: "en" };
+  ok(panel(c, "composition").textContent.includes("80.0 kg"), "map updates when a value changes");
+  c = make({ default_tab: "composition" }, { states: { ...baseStates(), "sensor.inbody_body_water_percentage": { state: "unavailable", attributes: {} } } });
+  await tick();
+  ok(panel(c, "composition").querySelector(".empty") && !panel(c, "composition").querySelector("svg"), "missing/unavailable sensor -> message");
+  c = make({ default_tab: "composition" }, { language: "pt-BR" });
+  await tick();
+  ok([...panel(c, "composition").querySelectorAll("text.name")].map((n) => n.textContent).join("|") === "Água corporal|Músculo esquelético|Gordura corporal", "pt labels on the map");
+  threw = false;
+  try { document.createElement("ha-inbody-card").setConfig({ body_type: "x" }); } catch (e) { threw = true; }
+  ok(threw, "invalid body_type rejected");
+
+  // 13. visual editor
+  const Card = customElements.get("ha-inbody-card");
+  const ed = Card.getConfigElement();
+  eq(ed.tagName.toLowerCase(), "ha-inbody-card-editor", "getConfigElement returns the editor");
+  document.body.appendChild(ed);
+  let emitted = null;
+  ed.addEventListener("config-changed", (e) => { emitted = e.detail.config; });
+  ed.setConfig({ type: "custom:ha-inbody-card" });
+  ed.hass = { language: "pt-BR", entities: baseEntities(), states: { "sensor.inbody_weight": { attributes: { friendly_name: "Peso Friendly" } } } };
+  const form = ed.querySelector("ha-form");
+  ok(form, "editor renders ha-form");
+  const names = form.schema.map((f) => f.name);
+  eq(names, ["title", "tabs", "default_tab", "body_type", "mass_entities", "percentage_entities", "show_graph", "period", "days_to_show"], "schema fields");
+  eq(form.data.tabs, ["mass", "percentage", "composition"], "defaults: all tabs on");
+  eq(form.data.body_type, "male", "default body type is male");
+  eq([form.data.period, form.data.days_to_show, form.data.show_graph], ["month", 365, true], "defaults: graph");
+  const sel = (n) => form.schema.find((f) => f.name === n).selector.select;
+  eq(sel("mass_entities").options.map((o) => o.value),
+     ["sensor.inbody_weight", "sensor.inbody_skeletal_muscle_mass", "sensor.inbody_body_fat_mass", "sensor.inbody_body_water_mass"],
+     "mass checklist lists every candidate sensor");
+  eq(sel("percentage_entities").options.length, 3, "percentage checklist lists 3 sensors");
+  eq([sel("mass_entities").multiple, sel("mass_entities").mode], [true, "list"], "checklist selector");
+  eq(form.data.mass_entities, sel("mass_entities").options.map((o) => o.value), "mass: all checked by default");
+  eq(form.data.percentage_entities.length, 3, "percentage: all checked by default");
+  eq(sel("mass_entities").options[0].label, "Peso Friendly", "label uses friendly_name");
+  eq(form.computeLabel({ name: "period" }), "Período do gráfico", "pt label");
+  eq(form.schema.find((f) => f.name === "tabs").selector.select.options.map((o) => o.label), ["Peso", "Percentual", "Composição"], "pt tab option labels");
+  eq(form.schema.find((f) => f.name === "period").selector.select.options.map((o) => o.value), ["5minute", "hour", "day", "week", "month"], "period options");
+  const fire = (value) => form.dispatchEvent(new CustomEvent("value-changed", { detail: { value }, bubbles: true }));
+  fire({ ...form.data, tabs: ["percentage"], period: "week", days_to_show: 30, mass_entities: ["sensor.inbody_weight", "sensor.inbody_body_fat_mass"], title: "T" });
+  eq([emitted.tabs, emitted.period, emitted.days_to_show, emitted.mass_entities, emitted.title], [["percentage"], "week", 30, ["sensor.inbody_weight", "sensor.inbody_body_fat_mass"], "T"], "changes emitted");
+  eq(emitted.type, "custom:ha-inbody-card", "type kept");
+  fire({ ...form.data, tabs: ["mass", "percentage", "composition"], period: "month", days_to_show: 365, mass_entities: sel("mass_entities").options.map((o) => o.value), title: "", show_graph: false });
+  ok(!("tabs" in emitted) && !("period" in emitted) && !("days_to_show" in emitted) && !("mass_entities" in emitted) && !("title" in emitted), "defaults are not stored");
+  eq(emitted.show_graph, false, "show_graph:false stored");
+  fire({ ...form.data, mass_entities: [] });
+  ok(!("mass_entities" in emitted), "unchecking everything falls back to all");
+  // a sensor listed in YAML but not detected stays in the checklist
+  ed.setConfig({ type: "custom:ha-inbody-card", mass_entities: ["sensor.inbody_weight", "sensor.custom_extra"] });
+  eq(ed.querySelector("ha-form").schema.find((f) => f.name === "mass_entities").selector.select.options.map((o) => o.value).slice(-1), ["sensor.custom_extra"], "YAML-only sensor kept as option");
+  eq(ed.querySelector("ha-form").data.mass_entities, ["sensor.inbody_weight", "sensor.custom_extra"], "YAML selection preserved as checked");
+  fire({ ...form.data, tabs: [] });
+  ok(!("tabs" in emitted), "deselecting every tab keeps both");
+  fire({ ...form.data, body_type: "female" });
+  eq(emitted.body_type, "female", "female body type stored");
+  fire({ ...form.data, body_type: "male" });
+  ok(!("body_type" in emitted), "male (default) not stored");
+  // the emitted config must be accepted by the card
+  document.createElement("ha-inbody-card").setConfig({ ...emitted });
+  ok(true, "emitted config accepted by card");
+
+  document.getElementById("out").textContent =
+    failures.length ? "RESULT: FAIL\n" + failures.join("\n") : `RESULT: PASS (${checks} checks)`;
+})().catch((e) => { document.getElementById("out").textContent = "RESULT: ERROR " + e.stack; });
+</script></body></html>
